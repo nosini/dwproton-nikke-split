@@ -1,8 +1,8 @@
 diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
-index eccbcca..a48f825 100644
+index eccbcca..1f87804 100644
 --- a/dlls/win32u/dce.c
 +++ b/dlls/win32u/dce.c
-@@ -40,12 +40,181 @@ struct dce
+@@ -40,12 +40,200 @@ struct dce
      struct list entry;         /* entry in global DCE list */
      HDC         hdc;
      HWND        hwnd;
@@ -158,14 +158,33 @@ index eccbcca..a48f825 100644
 +void receive_foreign_window_image( HWND toplevel, HWND hwnd, void *mapping )
 +{
 +    const struct foreign_image_data *image = mapping;
++    const BITMAPINFOHEADER *header;
 +    const RGNDATA *region_data;
++    MEMORY_BASIC_INFORMATION info;
++    SIZE_T size;
 +    HRGN region;
 +    HDC hdc;
 +
++    /* Only use and unmap a whole view mapped for us, not any posted address. */
 +    if (!image) return;
++    if (NtQueryVirtualMemory( GetCurrentProcess(), mapping, MemoryBasicInformation,
++                              &info, sizeof(info), NULL ) ||
++        info.Type != MEM_MAPPED || info.AllocationBase != mapping)
++        return;
++    header = &image->info.bmiHeader;
++    region_data = (const RGNDATA *)(image + 1);
++    if (info.RegionSize < sizeof(*image) ||
++        image->region_size < sizeof(RGNDATAHEADER) ||
++        image->region_size > info.RegionSize - sizeof(*image) ||
++        region_data->rdh.nCount > (image->region_size - sizeof(RGNDATAHEADER)) / sizeof(RECT) ||
++        header->biPlanes != 1 || header->biBitCount != 32 || header->biCompression != BI_RGB ||
++        header->biWidth <= 0 || header->biHeight >= 0 ||
++        header->biWidth > 0x8000 || -header->biHeight > 0x8000)
++        goto done;
++    size = (SIZE_T)header->biWidth * -header->biHeight * 4;
++    if (size > info.RegionSize - sizeof(*image) - image->region_size) goto done;
 +    if (NtUserGetAncestor(hwnd, GA_ROOT) != toplevel) goto done;
 +    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | image->flags ))) goto done;
-+    region_data = (const RGNDATA *)(image + 1);
 +    if ((region = NtGdiExtCreateRegion( NULL, image->region_size, region_data )))
 +    {
 +        NtGdiExtSelectClipRgn( hdc, region, RGN_AND );
@@ -184,7 +203,7 @@ index eccbcca..a48f825 100644
  static struct list dce_list = LIST_INIT(dce_list);
  
  #define DCE_CACHE_SIZE 64
-@@ -911,6 +1080,14 @@ static void update_visible_region( struct dce *dce )
+@@ -911,6 +1099,14 @@ static void update_visible_region( struct dce *dce )
          }
      }
  
@@ -199,7 +218,7 @@ index eccbcca..a48f825 100644
      if (surface)
      {
          user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &top_rect, flags );
-@@ -939,6 +1116,7 @@ static void update_visible_region( struct dce *dce )
+@@ -939,6 +1135,7 @@ static void update_visible_region( struct dce *dce )
   */
  static void release_dce( struct dce *dce )
  {
@@ -207,7 +226,7 @@ index eccbcca..a48f825 100644
      if (!dce->hwnd) return;  /* already released */
  
      set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
-@@ -984,6 +1162,7 @@ BOOL delete_dce( struct dce *dce )
+@@ -984,6 +1181,7 @@ BOOL delete_dce( struct dce *dce )
      {
          list_remove( &dce->entry );
          if (dce->clip_rgn) NtGdiDeleteObjectApp( dce->clip_rgn );
@@ -215,7 +234,7 @@ index eccbcca..a48f825 100644
          free( dce );
      }
      user_unlock();
-@@ -1024,6 +1203,9 @@ static struct dce *alloc_dce(void)
+@@ -1024,6 +1222,9 @@ static struct dce *alloc_dce(void)
          free( dce );
          return 0;
      }
@@ -225,7 +244,7 @@ index eccbcca..a48f825 100644
      dce->hwnd      = 0;
      dce->clip_rgn  = 0;
      dce->flags     = 0;
-@@ -1290,6 +1472,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
+@@ -1290,6 +1491,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
      dce = get_dc_dce( hdc );
      if (dce && dce->count && dce->hwnd)
      {
