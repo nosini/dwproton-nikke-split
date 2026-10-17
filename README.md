@@ -1,9 +1,9 @@
 # NIKKE store in split display
 
-These experimental DWProton 11.0-14 patches keep NIKKE on native Wayland
-and its launcher on gamescope's private X11. With them, NIKKE's in-game store
-renders, and closing the store no longer ends the game. The store's
-dropdown lists, such as the billing city, stay open and can be
+This experimental DWProton 11.0-14 runner fix keeps NIKKE on native Wayland
+and its launcher on gamescope's private X11. With it, NIKKE's in-game store
+renders, and closing the store no longer ends the game. Since revision 4,
+the store's dropdown lists, such as the billing city, stay open and can be
 used with the mouse, the scrollbar and the keyboard. The mouse wheel does
 not scroll them yet. The patches address these reproduced driver failures:
 
@@ -30,6 +30,35 @@ not scroll them yet. The patches address these reproduced driver failures:
 
 The launcher fallback remains enabled for `nikke_launcher.exe` and
 `tbs_browser.exe`. No game files or registry overrides are involved.
+
+## Try the prepared modules
+
+Close NIKKE and its launcher, then run from this checkout:
+
+```sh
+python3 prepare-runner.py
+```
+
+The script finds an unmodified DWProton 11.0-14 installation, checks its
+four original modules against their published-build checksums, and makes
+a separate `DWProton-11.0-14-nikke-split-r4` runner. The original and the
+earlier experimental runners are preserved.
+An installation elsewhere can be supplied as the first argument.
+
+In NIKKE's sandbox settings, select that runner, keep **Native Wayland +
+private X11 (split)**, and clear **X11 executable**. An explicit
+`INTLWebViewHelper.exe` override would force the incompatible path back on.
+Launch again and test opening, closing, and reopening the store and its
+dropdown lists.
+
+The prepared modules are for an x86-64 Linux system with glibc 2.38 or
+newer and the normal Wine Wayland libraries. `modules/` holds the built
+replacements and their checksum manifest.
+
+To undo the change, select the original runner again. The custom runner
+has a distinct path so Proton refreshes built-in DLLs when switching.
+Its discovery timestamp is zero, so automatic runner selection continues
+to prefer released builds.
 
 ## Source and validation
 
@@ -65,6 +94,18 @@ with the mouse or keyboard and dragging its scrollbar work, but the mouse
 wheel does nothing over it. Revision 3's
 cross-process popup forwarding is dropped: NIKKE's dropdown is created in
 the game process, not in a helper.
+
+If the store renders white again, leave it open and run from this checkout:
+
+```sh
+sandbox-attach --exec -- python3 -I - < diagnose-store.py
+```
+
+If multiple sandboxes are running, add `--name NAME` before `--exec`.
+The script only reads process metadata. It reports loaded display/graphics
+modules, selected browser flags, display settings, and whether the mapped
+`user32.dll`, `win32u.so` and `winewayland.so` files on disk match the
+prepared patches. It omits full command lines and URLs. Loaded modules alone do not prove the active rendering API.
 
 The small reproducer sources are under `tests/`. The rendering probe
 launches a copy named `INTLWebViewHelper.exe` to exercise the exact fallback
@@ -115,8 +156,8 @@ make -j4 dlls/winewayland.drv/winewayland.so \
   dlls/win32u/win32u.so
 ```
 
-Replace the matching files under `files/lib/wine/` in a copy of the
-DWProton 11.0-14 runner with these outputs, and give the copy its own
-folder name so Proton refreshes its built-in DLLs. The rest of the runner
-remains the published DWProton build. Wine's source is licensed under
-LGPL-2.1-or-later.
+Copy these four outputs into the corresponding `modules/files/lib/wine/`
+directories and regenerate `modules/sha256.json` with SHA-256 values keyed
+by their relative paths. This rebuilds only the replacement modules; the
+rest of the runner remains the published DWProton build. Wine's source is
+licensed under LGPL-2.1-or-later.
