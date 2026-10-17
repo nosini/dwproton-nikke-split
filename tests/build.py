@@ -20,7 +20,7 @@ imports = {
                  "GetExitCodeProcess"],
     "user32": ["RegisterClassA", "CreateWindowExA", "ShowWindow", "DestroyWindow", "UpdateWindow",
                "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect"],
-    "gdi32": ["ChoosePixelFormat", "SetPixelFormat", "SwapBuffers", "CreateSolidBrush", "DeleteObject"],
+    "gdi32": ["ChoosePixelFormat", "SetPixelFormat", "SwapBuffers", "CreateSolidBrush", "DeleteObject", "GdiFlush", "CreateCompatibleDC", "CreateDIBSection", "SelectObject", "BitBlt", "DeleteDC", "CreateRectRgn", "CombineRgn", "SelectClipRgn", "GetPixel"],
     "opengl32": ["wglCreateContext", "wglMakeCurrent", "wglDeleteContext", "glClearColor", "glClear"],
 }
 libraries = []
