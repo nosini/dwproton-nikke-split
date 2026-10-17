@@ -2,8 +2,10 @@
 
 These experimental DWProton 11.0-14 patches keep NIKKE on native Wayland
 and its launcher on gamescope's private X11. With them, NIKKE's in-game store
-renders, and closing the store no longer ends the game. The patches
-address these reproduced driver failures:
+renders, and closing the store no longer ends the game. The store's
+dropdown lists, such as the billing city, stay open and can be
+used with the mouse, the scrollbar and the keyboard. The mouse wheel does
+not scroll them yet. The patches address these reproduced driver failures:
 
 - DWProton forces `INTLWebViewHelper.exe` to X11. An OpenGL helper drawing
   into a Wayland process's child window then leaves the view white. Letting
@@ -16,6 +18,15 @@ address these reproduced driver failures:
   Wayland objects in an invalid order. The compositor disconnects Wine and
   Wine terminates the game. Retire descendant popup roles first and ask
   their window threads to update them afterwards.
+- The store's browser runs inside the game process and draws a `<select>`
+  dropdown in an unowned, non-activating tool window with a resizing
+  frame. Wine's Wayland driver treats every framed window as an
+  application window and maps the dropdown as a separate toplevel. The
+  compositor focuses it, the game loses keyboard focus, and the store
+  closes the dropdown at once. Non-activating tool popups are now
+  unmanaged, so they become an ungrabbed `xdg_popup` of the window beside
+  them. If that window belongs to another process, Wayland cannot attach
+  to it, so the dropdown is attached to the process's foreground window.
 
 The launcher fallback remains enabled for `nikke_launcher.exe` and
 `tbs_browser.exe`. No game files or registry overrides are involved.
@@ -27,6 +38,8 @@ The launcher fallback remains enabled for `nikke_launcher.exe` and
 `user32.dll` are rebuilt. The popup fix is in the 64-bit Unix driver used
 by NIKKE's game process. `software-copy.patch` applies to the same source
 and rebuilds the 64-bit Unix `win32u.so` used by the game and store helpers.
+`noactivate-popups.patch` applies after both and changes the 64-bit Unix
+`winewayland.so` again.
 
 VM checks reproduce the nested-popup protocol error in unmodified DWProton
 11.0-14 and GE-Proton 11-9. The patched driver survives that case. A separate
@@ -40,9 +53,27 @@ including disjoint clipping regions and parent-owned child windows.
 The OpenGL probe still passes with revision 2. In NIKKE, revision 2 renders
 the store, and opening and closing it keeps the game running.
 
+A Wine trace from NIKKE shows each store dropdown becoming a toplevel and
+taking keyboard focus from the game window. A dropdown probe with the same
+window styles reproduces this under Mutter with revisions 2 and 3: the
+popup is activated and the browser child loses focus. With revision 4 the
+child keeps focus, and a click, a wheel turn and a key press each reach
+their window, also through Proton, where a console window lies beside the
+dropdown. Hiding and reshowing the popup works, and the earlier probes
+still pass. In NIKKE, revision 4 keeps the City dropdown open; selecting
+with the mouse or keyboard and dragging its scrollbar work, but the mouse
+wheel does nothing over it. Revision 3's
+cross-process popup forwarding is dropped: NIKKE's dropdown is created in
+the game process, not in a helper.
+
 The small reproducer sources are under `tests/`. The rendering probe
 launches a copy named `INTLWebViewHelper.exe` to exercise the exact fallback
-rule. The popup probe hides an owner before its nested popup.
+rule. The popup probe hides an owner before its nested popup. The dropdown
+probe, in `dropdown/` of the output directory, puts a focused child into a
+window and opens a non-activating popup over it. With `--local --chromium`
+it does so in one process with the styles of NIKKE's store dropdown.
+Without `--local`, an `INTLWebViewHelper.exe` copy creates child and popup
+from another process; that case is not handled.
 
 Build the probes with `python3 tests/build.py WINE_SOURCE OUTPUT_DIRECTORY`
 from this directory, then run each `.exe` through the runner being tested.
@@ -55,6 +86,12 @@ For software copies, run `render-probe.exe --gdi --foreign-window`, or
 Success prints `parent-pixels-ok` and exits with status zero; the first
 build exits with status 7. Omitting `--foreign-window` makes the helper
 own the child while the parent still owns the top-level window.
+Run the dropdown probe on a compositor with a keyboard that focuses new
+windows, as GNOME does. It exits with status zero if the child keeps focus;
+with `--local --chromium`, revisions 2 and 3 exit with status 8. With `--wait-click`, `--wait-wheel` or
+`--wait-key` it also waits for a click or wheel turn on the popup or a key
+press, exiting with status 9, 11 or 10 if missing. `--reopen` hides and
+shows the popup again.
 
 To rebuild, use a Wine development environment with GCC, Clang/LLD,
 Autoconf, Bison, Flex, Wayland, EGL, xkbcommon and xkbregistry development
@@ -67,6 +104,7 @@ git -C wine-source rev-parse HEAD
 # Check the commit above before applying the patch.
 git -C wine-source apply /path/to/store-split.patch
 git -C wine-source apply /path/to/software-copy.patch
+git -C wine-source apply /path/to/noactivate-popups.patch
 (cd wine-source && ./autogen.sh)
 mkdir wine-build
 cd wine-build

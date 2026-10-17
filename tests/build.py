@@ -19,7 +19,9 @@ imports = {
                  "GetCommandLineA", "GetModuleFileNameA", "CreateProcessA", "WaitForSingleObject",
                  "GetExitCodeProcess"],
     "user32": ["RegisterClassA", "CreateWindowExA", "ShowWindow", "DestroyWindow", "UpdateWindow",
-               "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect"],
+               "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect",
+               "SetFocus", "GetFocus", "GetWindowRect", "GetWindow", "BeginPaint", "EndPaint",
+               "LoadCursorA", "GetForegroundWindow"],
     "gdi32": ["ChoosePixelFormat", "SetPixelFormat", "SwapBuffers", "CreateSolidBrush", "DeleteObject", "GdiFlush", "CreateCompatibleDC", "CreateDIBSection", "SelectObject", "BitBlt", "DeleteDC", "CreateRectRgn", "CombineRgn", "SelectClipRgn", "GetPixel"],
     "opengl32": ["wglCreateContext", "wglMakeCurrent", "wglDeleteContext", "glClearColor", "glClear"],
 }
@@ -31,7 +33,7 @@ for name, exports in imports.items():
     subprocess.run(["llvm-dlltool", "-m", "i386:x86-64", "-d", str(definition),
                     "-l", str(library)], check=True)
     libraries.append(str(library))
-for name in ("window-probe", "render-probe"):
+for name in ("window-probe", "render-probe", "dropdown-probe"):
     subprocess.run(["clang", "--target=x86_64-pc-windows-msvc", "-D__WINE_PE_BUILD",
                     "-I", str(args.wine_source / "include"),
                     "-I", str(args.wine_source / "include/msvcrt"),
@@ -39,3 +41,7 @@ for name in ("window-probe", "render-probe"):
                     *libraries, "-Wl,/entry:mainCRTStartup", "-Wl,/subsystem:console",
                     "-o", str(output / f"{name}.exe")], check=True)
 shutil.copyfile(output / "render-probe.exe", output / "INTLWebViewHelper.exe")
+# The dropdown probe launches its helper under the same name from its own directory.
+(output / "dropdown").mkdir(exist_ok=True)
+shutil.move(output / "dropdown-probe.exe", output / "dropdown/dropdown-probe.exe")
+shutil.copyfile(output / "dropdown/dropdown-probe.exe", output / "dropdown/INTLWebViewHelper.exe")
