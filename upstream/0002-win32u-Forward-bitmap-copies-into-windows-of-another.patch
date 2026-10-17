@@ -1,0 +1,354 @@
+From 0336e9a8e766d95ffcd2cc867b38aee7ea492400 Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Sun, 18 Oct 2026 01:29:24 +0200
+Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another
+ process.
+
+A window whose top-level belongs to another process has no window surface
+in the drawing process, so on Wayland its DCs use the null driver and
+PutImage silently discards the bits. Chromium's software output device
+does exactly this: its GPU process copies each frame into the browser's
+HWND with GetDC/BitBlt/ReleaseDC. An embedded browser such as NIKKE's
+in-game store then stays white.
+
+Queue clipped 32-bit SRCCOPY images in the DCE and, on ReleaseDC outside
+the GDI lock, map each one read-only into the top-level's process and post
+it an internal message. The receiver checks that the message points to a
+whole mapped view of the expected size, paints the bits through a DC of
+the target window with the saved clip region, and unmaps the view. Other
+raster operations and formats are still discarded as before.
+
+Reproduced with a test process that BitBlts into a child window of another
+process's top-level: the pixels stay white before and match after,
+including disjoint clip regions.
+---
+ dlls/win32u/dce.c            | 202 +++++++++++++++++++++++++++++++++++
+ dlls/win32u/driver.c         |   2 +-
+ dlls/win32u/message.c        |   3 +
+ dlls/win32u/ntgdi_private.h  |   4 +
+ dlls/win32u/ntuser_private.h |   2 +
+ include/ntuser.h             |   1 +
+ 6 files changed, 213 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
+index eccbcca..1f87804 100644
+--- a/dlls/win32u/dce.c
++++ b/dlls/win32u/dce.c
+@@ -40,12 +40,200 @@ struct dce
+     struct list entry;         /* entry in global DCE list */
+     HDC         hdc;
+     HWND        hwnd;
++    struct list foreign_images;
++    HWND        foreign_toplevel;
++    DWORD       foreign_pid;
+     HRGN        clip_rgn;
+     UINT        flags;
+     LONG        count;         /* usage count; 0 or 1 for cache DCEs, always 1 for window DCEs,
+                                   always >= 1 for class DCEs */
+ };
+ 
++/* A foreign top-level has no local window_surface. Bitmap copies reaching
++ * the null driver must be painted by the top-level's process instead. Keep
++ * immutable updates until ReleaseDC, outside the GDI lock. */
++struct foreign_image_data
++{
++    RECT rect;
++    UINT flags, region_size;
++    BITMAPINFO info;
++    /* RGNDATA followed by tightly packed, top-down 32-bit pixels. */
++};
++
++struct foreign_image
++{
++    struct list entry;
++    HWND toplevel, hwnd;
++    DWORD pid;
++    SIZE_T size;
++    struct foreign_image_data data;
++};
++
++DWORD put_foreign_window_image( DC *dc, HRGN clip, BITMAPINFO *info,
++                                const struct gdi_image_bits *bits, struct bitblt_coords *src,
++                                struct bitblt_coords *dst, DWORD rop )
++{
++    struct dce *dce = dc->dce;
++    struct foreign_image *image;
++    SIZE_T size, row_size;
++    DWORD region_size;
++    HRGN region;
++    BYTE *pixels;
++    int width, height, y, sy, stride;
++
++    if (!dce || !dce->foreign_toplevel) return ERROR_SUCCESS;
++    if (info->bmiHeader.biPlanes != 1 || info->bmiHeader.biBitCount != 32 ||
++        info->bmiHeader.biCompression != BI_RGB)
++    {
++        info->bmiHeader.biPlanes = 1;
++        info->bmiHeader.biBitCount = 32;
++        info->bmiHeader.biCompression = BI_RGB;
++        info->bmiHeader.biClrUsed = 0;
++        return ERROR_BAD_FORMAT;
++    }
++    if (!bits) return ERROR_SUCCESS;
++    if (rop != SRCCOPY) return ERROR_NOT_SUPPORTED;
++    if (src->width != dst->width || src->height != dst->height)
++        return ERROR_TRANSFORM_NOT_SUPPORTED;
++    width = dst->visrect.right - dst->visrect.left;
++    height = dst->visrect.bottom - dst->visrect.top;
++    if (width <= 0 || height <= 0) return ERROR_SUCCESS;
++    if (src->visrect.left < 0 || src->visrect.top < 0 ||
++        src->visrect.right > info->bmiHeader.biWidth ||
++        src->visrect.bottom > abs(info->bmiHeader.biHeight) ||
++        src->visrect.right - src->visrect.left != width ||
++        src->visrect.bottom - src->visrect.top != height)
++        return ERROR_INVALID_PARAMETER;
++
++    if (!(region = NtGdiCreateRectRgn( dst->visrect.left, dst->visrect.top,
++                                      dst->visrect.right, dst->visrect.bottom )))
++        return ERROR_OUTOFMEMORY;
++    if (get_dc_region(dc)) NtGdiCombineRgn( region, region, get_dc_region(dc), RGN_AND );
++    if (clip) NtGdiCombineRgn( region, region, clip, RGN_AND );
++    region_size = NtGdiGetRegionData( region, 0, NULL );
++    row_size = (SIZE_T)width * 4;
++    if (!region_size || row_size > (SIZE_MAX - sizeof(image->data) - region_size) / height)
++    {
++        NtGdiDeleteObjectApp( region );
++        return ERROR_OUTOFMEMORY;
++    }
++    size = sizeof(image->data) + region_size + row_size * height;
++    if (size > SIZE_MAX - offsetof(struct foreign_image, data) ||
++        !(image = malloc( offsetof(struct foreign_image, data) + size )))
++    {
++        NtGdiDeleteObjectApp( region );
++        return ERROR_OUTOFMEMORY;
++    }
++    image->toplevel = dce->foreign_toplevel;
++    image->pid = dce->foreign_pid;
++    image->hwnd = dce->hwnd;
++    image->size = size;
++    memset( &image->data, 0, sizeof(image->data) );
++    image->data.rect = dst->visrect;
++    image->data.flags = dce->flags & DCX_WINDOW;
++    image->data.region_size = region_size;
++    image->data.info.bmiHeader = info->bmiHeader;
++    image->data.info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
++    image->data.info.bmiHeader.biWidth = width;
++    image->data.info.bmiHeader.biHeight = -height;
++    image->data.info.bmiHeader.biSizeImage = row_size * height;
++    NtGdiGetRegionData( region, region_size, (RGNDATA *)(&image->data + 1) );
++    NtGdiDeleteObjectApp( region );
++    pixels = (BYTE *)(&image->data + 1) + region_size;
++    stride = info->bmiHeader.biWidth * 4;
++    for (y = 0; y < height; y++)
++    {
++        sy = src->visrect.top + y;
++        if (info->bmiHeader.biHeight > 0) sy = info->bmiHeader.biHeight - 1 - sy;
++        memcpy( pixels + row_size * y,
++                (const BYTE *)bits->ptr + (SIZE_T)stride * sy + src->visrect.left * 4, row_size );
++    }
++    list_add_tail( &dce->foreign_images, &image->entry );
++    return ERROR_SUCCESS;
++}
++
++static void flush_foreign_window_images( struct dce *dce )
++{
++    struct foreign_image *image, *next;
++
++    LIST_FOR_EACH_ENTRY_SAFE( image, next, &dce->foreign_images, struct foreign_image, entry )
++    {
++        HANDLE section = NULL, process = NULL;
++        void *local = NULL, *remote = NULL;
++        SIZE_T view_size = 0;
++        LARGE_INTEGER size = {.QuadPart = image->size};
++        CLIENT_ID id = {.UniqueProcess = ULongToHandle(image->pid)};
++        DWORD pid = 0;
++
++        if (!NtUserGetWindowThread(image->toplevel, &pid) || pid != image->pid) goto done;
++        if (NtCreateSection( &section, SECTION_MAP_READ | SECTION_MAP_WRITE, NULL, &size,
++                             PAGE_READWRITE, SEC_COMMIT, NULL )) goto done;
++        if (NtMapViewOfSection( section, GetCurrentProcess(), &local, 0, 0, NULL,
++                                &view_size, ViewUnmap, 0, PAGE_READWRITE )) goto done;
++        memcpy( local, &image->data, image->size );
++        if (NtOpenProcess( &process, PROCESS_VM_OPERATION, NULL, &id )) goto done;
++        view_size = 0;
++        if (NtMapViewOfSection( section, process, &remote, 0, 0, NULL,
++                                &view_size, ViewUnmap, 0, PAGE_READONLY )) goto done;
++        if (!NtUserPostMessage( image->toplevel, WM_WINE_UPDATE_GDI_CONTENTS,
++                                (WPARAM)image->hwnd, (LPARAM)remote ))
++            NtUnmapViewOfSection( process, remote );
++        else TRACE( "Forwarded bitmap hwnd %p to %p rect %s\n", image->hwnd,
++                    image->toplevel, wine_dbgstr_rect(&image->data.rect) );
++    done:
++        if (process) NtClose( process );
++        if (local) NtUnmapViewOfSection( GetCurrentProcess(), local );
++        if (section) NtClose( section );
++        list_remove( &image->entry );
++        free( image );
++    }
++}
++
++void receive_foreign_window_image( HWND toplevel, HWND hwnd, void *mapping )
++{
++    const struct foreign_image_data *image = mapping;
++    const BITMAPINFOHEADER *header;
++    const RGNDATA *region_data;
++    MEMORY_BASIC_INFORMATION info;
++    SIZE_T size;
++    HRGN region;
++    HDC hdc;
++
++    /* Only use and unmap a whole view mapped for us, not any posted address. */
++    if (!image) return;
++    if (NtQueryVirtualMemory( GetCurrentProcess(), mapping, MemoryBasicInformation,
++                              &info, sizeof(info), NULL ) ||
++        info.Type != MEM_MAPPED || info.AllocationBase != mapping)
++        return;
++    header = &image->info.bmiHeader;
++    region_data = (const RGNDATA *)(image + 1);
++    if (info.RegionSize < sizeof(*image) ||
++        image->region_size < sizeof(RGNDATAHEADER) ||
++        image->region_size > info.RegionSize - sizeof(*image) ||
++        region_data->rdh.nCount > (image->region_size - sizeof(RGNDATAHEADER)) / sizeof(RECT) ||
++        header->biPlanes != 1 || header->biBitCount != 32 || header->biCompression != BI_RGB ||
++        header->biWidth <= 0 || header->biHeight >= 0 ||
++        header->biWidth > 0x8000 || -header->biHeight > 0x8000)
++        goto done;
++    size = (SIZE_T)header->biWidth * -header->biHeight * 4;
++    if (size > info.RegionSize - sizeof(*image) - image->region_size) goto done;
++    if (NtUserGetAncestor(hwnd, GA_ROOT) != toplevel) goto done;
++    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | image->flags ))) goto done;
++    if ((region = NtGdiExtCreateRegion( NULL, image->region_size, region_data )))
++    {
++        NtGdiExtSelectClipRgn( hdc, region, RGN_AND );
++        NtGdiSetDIBitsToDeviceInternal( hdc, image->rect.left, image->rect.top,
++                                       image->info.bmiHeader.biWidth, -image->info.bmiHeader.biHeight,
++                                       0, 0, 0, -image->info.bmiHeader.biHeight,
++                                       (const BYTE *)region_data + image->region_size,
++                                       &image->info, DIB_RGB_COLORS, 0, 0, FALSE, NULL );
++        NtGdiDeleteObjectApp( region );
++    }
++    NtUserReleaseDC( hwnd, hdc );
++ done:
++    NtUnmapViewOfSection( GetCurrentProcess(), mapping );
++}
++
+ static struct list dce_list = LIST_INIT(dce_list);
+ 
+ #define DCE_CACHE_SIZE 64
+@@ -911,6 +1099,14 @@ static void update_visible_region( struct dce *dce )
+         }
+     }
+ 
++    dce->foreign_toplevel = 0;
++    dce->foreign_pid = 0;
++    if (!surface && !user_driver->dc_funcs.pPutImage && !is_current_process_window(top_win))
++    {
++        dce->foreign_toplevel = top_win;
++        NtUserGetWindowThread(top_win, &dce->foreign_pid);
++    }
++
+     if (surface)
+     {
+         user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &top_rect, flags );
+@@ -939,6 +1135,7 @@ static void update_visible_region( struct dce *dce )
+  */
+ static void release_dce( struct dce *dce )
+ {
++    flush_foreign_window_images( dce );
+     if (!dce->hwnd) return;  /* already released */
+ 
+     set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
+@@ -984,6 +1181,7 @@ BOOL delete_dce( struct dce *dce )
+     {
+         list_remove( &dce->entry );
+         if (dce->clip_rgn) NtGdiDeleteObjectApp( dce->clip_rgn );
++        flush_foreign_window_images( dce );
+         free( dce );
+     }
+     user_unlock();
+@@ -1024,6 +1222,9 @@ static struct dce *alloc_dce(void)
+         free( dce );
+         return 0;
+     }
++    list_init( &dce->foreign_images );
++    dce->foreign_toplevel = 0;
++    dce->foreign_pid = 0;
+     dce->hwnd      = 0;
+     dce->clip_rgn  = 0;
+     dce->flags     = 0;
+@@ -1290,6 +1491,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
+     dce = get_dc_dce( hdc );
+     if (dce && dce->count && dce->hwnd)
+     {
++        flush_foreign_window_images( dce );
+         if (!(dce->flags & DCX_NORESETATTRS)) set_dce_flags( dce->hdc, DCHF_RESETDC );
+         if (end_paint || (dce->flags & DCX_CACHE)) delete_clip_rgn( dce );
+         if (dce->flags & DCX_CACHE)
+diff --git a/dlls/win32u/driver.c b/dlls/win32u/driver.c
+index 793de3f..a8b8d9a 100644
+--- a/dlls/win32u/driver.c
++++ b/dlls/win32u/driver.c
+@@ -412,7 +412,7 @@ static DWORD nulldrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
+                                const struct gdi_image_bits *bits, struct bitblt_coords *src,
+                                struct bitblt_coords *dst, DWORD rop )
+ {
+-    return ERROR_SUCCESS;
++    return put_foreign_window_image( get_nulldrv_dc(dev), clip, info, bits, src, dst, rop );
+ }
+ 
+ static UINT nulldrv_RealizeDefaultPalette( PHYSDEV dev )
+diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
+index 138b553..4b49daf 100644
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -2277,6 +2277,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
+     case WM_WINE_UPDATEWINDOWSTATE:
+         update_window_state( hwnd );
+         return 0;
++    case WM_WINE_UPDATE_GDI_CONTENTS:
++        receive_foreign_window_image( hwnd, (HWND)wparam, (void *)lparam );
++        return 0;
+     case WM_WINE_UPDATE_WIN_CONTENTS:
+     {
+         RECT client;
+diff --git a/dlls/win32u/ntgdi_private.h b/dlls/win32u/ntgdi_private.h
+index 72b36ec..04b5fe9 100644
+--- a/dlls/win32u/ntgdi_private.h
++++ b/dlls/win32u/ntgdi_private.h
+@@ -163,6 +163,10 @@ extern HBRUSH create_brush( const LOGBRUSH *brush );
+ extern BOOL store_brush_pattern( LOGBRUSH *brush, struct brush_pattern *pattern );
+ extern void free_brush_pattern( struct brush_pattern *pattern );
+ 
++extern DWORD put_foreign_window_image( DC *dc, HRGN clip, BITMAPINFO *info,
++                                        const struct gdi_image_bits *bits, struct bitblt_coords *src,
++                                        struct bitblt_coords *dst, DWORD rop );
++
+ /* clipping.c */
+ extern BOOL clip_device_rect( DC *dc, RECT *dst, const RECT *src );
+ extern BOOL clip_visrect( DC *dc, RECT *dst, const RECT *src );
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index e02e484..4cac1f0 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -255,4 +255,6 @@ WND *get_win_ptr( HWND hwnd );
+ BOOL is_child( HWND parent, HWND child );
+ BOOL is_window( HWND hwnd );
+ 
++extern void receive_foreign_window_image( HWND toplevel, HWND hwnd, void *mapping );
++
+ #endif /* __WINE_NTUSER_PRIVATE_H */
+diff --git a/include/ntuser.h b/include/ntuser.h
+index 5f0a0b0..011041b 100644
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -655,6 +655,7 @@ enum wine_internal_message
+     WM_WINE_GETSCROLLBARINFO,
+     WM_WINE_GETSCROLLINFO,
+     WM_WINE_SETSCROLLINFO,
++    WM_WINE_UPDATE_GDI_CONTENTS,
+     WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
+     WM_WINE_CLIPCURSOR = 0x80001ff0, /* internal driver notification messages */
+     WM_WINE_SETCURSOR,
+-- 
+2.55.0
+

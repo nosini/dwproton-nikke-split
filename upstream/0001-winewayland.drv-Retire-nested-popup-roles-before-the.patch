@@ -1,0 +1,99 @@
+From 4461ca450bb5109db66ef8ff9b9540bf24f418cf Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Sun, 18 Oct 2026 01:29:24 +0200
+Subject: [PATCH 1/4] winewayland.drv: Retire nested popup roles before their
+ parent.
+
+When an owned popup is hidden while a popup it owns is still visible, the
+driver destroys the parent xdg_popup first. xdg-shell requires popups to
+be destroyed from the topmost one down, so the compositor sends
+"xdg_wm_base: error 2: destroyed popup not top most popup" and
+disconnects Wine, which terminates the process.
+
+Track live popup descendants and clear their roles before the parent's.
+Their window threads are asked to update the role afterwards, which also
+covers the compositor dismissing a popup.
+
+Seen with NIKKE's in-game store: closing it ended the game. Reproduced
+with a Win32 test hiding an owner before its nested popup, on GNOME and
+Weston, with DWProton 11.0-14 and GE-Proton 11-9.
+---
+ dlls/winewayland.drv/wayland_surface.c | 22 ++++++++++++++++------
+ dlls/winewayland.drv/waylanddrv.h      |  2 ++
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index 9c55fa7..512e32e 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -249,15 +249,9 @@ static void xdg_popup_handle_done(void *private, struct xdg_popup *xdg_popup)
+      * The protocol does not explicitly prohibit this from occuring on ungrabbed popups. */
+     WARN("Compositor dismissed popup hwnd=%p\n", hwnd);
+ 
+-    /* the protocol requires us to destroy the xdg_popup */
+-    xdg_popup_destroy(xdg_popup);
+-
+     if (!(data = wayland_win_data_get(hwnd))) return;
+     if ((surface = data->wayland_surface) && surface->xdg_popup == xdg_popup)
+-    {
+-        surface->xdg_popup = NULL;
+         wayland_surface_clear_role(surface);
+-    }
+     wayland_win_data_release(data);
+ 
+     NtUserPostMessage(hwnd, WM_WINE_UPDATEWINDOWSTATE, 0, 0);
+@@ -351,6 +345,8 @@ struct wayland_surface *wayland_surface_create(HWND hwnd)
+ 
+     surface->hwnd = hwnd;
+     wl_list_init(&surface->output_list);
++    wl_list_init(&surface->popup_children);
++    wl_list_init(&surface->popup_entry);
+ 
+     surface->wl_surface = wl_compositor_create_surface(process_wayland.wl_compositor);
+     if (!surface->wl_surface)
+@@ -666,6 +662,7 @@ void wayland_surface_make_popup(struct wayland_surface *surface,
+     xdg_popup_add_listener(surface->xdg_popup, &xdg_popup_listener, surface->hwnd);
+ 
+     surface->owner_hwnd = owner->hwnd;
++    wl_list_insert(&owner->popup_children, &surface->popup_entry);
+     wl_surface_commit(surface->wl_surface);
+     wl_display_flush(process_wayland.wl_display);
+ 
+@@ -684,8 +681,21 @@ err:
+  */
+ void wayland_surface_clear_role(struct wayland_surface *surface)
+ {
++    struct wayland_surface *child;
++
+     TRACE("surface=%p\n", surface);
+ 
++    /* Win32 may hide an owner before its owned windows. xdg-shell requires
++     * nested popups to be destroyed from the leaves towards the parent. */
++    while (!wl_list_empty(&surface->popup_children))
++    {
++        child = wl_container_of(surface->popup_children.next, child, popup_entry);
++        wayland_surface_clear_role(child);
++        NtUserPostMessage(child->hwnd, WM_WINE_UPDATEWINDOWSTATE, 0, 0);
++    }
++    wl_list_remove(&surface->popup_entry);
++    wl_list_init(&surface->popup_entry);
++
+     /* some objects are shared between several roles */
+ 
+     if (surface->wp_fractional_scale_v1)
+diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
+index c2f1fd4..a26e2fd 100644
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -401,6 +401,8 @@ struct wayland_surface
+ 
+     struct xdg_surface *xdg_surface;
+     HWND owner_hwnd;
++    /* Live popup roles must be retired before their parent role. */
++    struct wl_list popup_children, popup_entry;
+ 
+     union
+     {
+-- 
+2.55.0
+

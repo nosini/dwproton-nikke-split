@@ -1,0 +1,31 @@
+From 8623b4386024117080b1494bbd1e4ee395b20373 Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Sun, 18 Oct 2026 01:29:24 +0200
+Subject: [PATCH 3/4] user32: Let INTLWebViewHelper.exe use the Wayland driver.
+
+The store helper of NIKKE was forced onto winex11 together with the
+launchers. Its views are embedded in the game's window, so with the game
+on Wayland nothing it draws reaches the screen and the store stays white.
+On Wayland, OpenGL output already reaches another process's window
+through the offscreen copy path, and software output now does as well.
+
+nikke_launcher.exe and tbs_browser.exe keep their X11 fallback.
+---
+ dlls/user32/user_main.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/dlls/user32/user_main.c b/dlls/user32/user_main.c
+index e542977..16710c6 100644
+--- a/dlls/user32/user_main.c
++++ b/dlls/user32/user_main.c
+@@ -175,7 +175,6 @@ static BOOL use_x11_launcher_driver( const WCHAR *image, const WCHAR *name )
+         !wcsicmp( name, L"launcher_main.exe" ) ||
+         !wcsicmp( name, L"nikke_launcher.exe" ) ||
+         !wcsicmp( name, L"tbs_browser.exe" ) ||
+-        !wcsicmp( name, L"INTLWebViewHelper.exe" ) ||
+         !wcsicmp( name, L"msedgewebview2.exe" ))
+         return TRUE;
+ 
+-- 
+2.55.0
+

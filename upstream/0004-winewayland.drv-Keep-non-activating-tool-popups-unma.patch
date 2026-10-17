@@ -1,0 +1,74 @@
+From 912e78d18282041d6c70f0d3f8e01e0edb66fc57 Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Sun, 18 Oct 2026 01:29:24 +0200
+Subject: [PATCH 4/4] winewayland.drv: Keep non-activating tool popups
+ unmanaged.
+
+Chromium shows <select> dropdowns in an unowned WS_POPUP with
+WS_THICKFRAME, WS_EX_NOACTIVATE and WS_EX_TOOLWINDOW, without activating
+it. The driver treats every window with a thick frame as managed and maps
+it as an xdg_toplevel. The compositor gives that toplevel keyboard focus,
+the browser loses focus and closes the dropdown as soon as it opens.
+
+Treat non-activating tool popups that are not being activated as
+unmanaged, so they become ungrabbed xdg_popups of the window beside them.
+For an unowned popup, that hint is the window found next to it, which may
+belong to another process and cannot be used as a parent; anchor the
+popup to the foreground window instead.
+
+Seen with the dropdowns of NIKKE's in-game store. Reproduced with a
+Chromium-style popup under Mutter, with and without Proton.
+---
+ dlls/winewayland.drv/window.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
+index 9ea9385..94e8425 100644
+--- a/dlls/winewayland.drv/window.c
++++ b/dlls/winewayland.drv/window.c
+@@ -409,6 +409,18 @@ static BOOL has_owned_popups(HWND hwnd)
+     return ret;
+ }
+ 
++/* Menus and dropdowns such as Chromium's, even with a frame. A toplevel
++ * would take keyboard focus from their owner and close them. */
++static BOOL is_noactivate_tool_popup(HWND hwnd)
++{
++    DWORD style = NtUserGetWindowLongW(hwnd, GWL_STYLE);
++    DWORD ex_style = NtUserGetWindowLongW(hwnd, GWL_EXSTYLE);
++
++    return (style & WS_POPUP) &&
++           (ex_style & (WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_APPWINDOW)) ==
++           (WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW);
++}
++
+ static inline HWND get_active_window(void)
+ {
+     GUITHREADINFO info;
+@@ -431,6 +443,7 @@ static BOOL is_window_managed(HWND hwnd, UINT swp_flags, BOOL fullscreen)
+     /* activated windows are managed */
+     if (!(swp_flags & (SWP_NOACTIVATE|SWP_HIDEWINDOW))) return TRUE;
+     if (hwnd == get_active_window()) return TRUE;
++    if (is_noactivate_tool_popup(hwnd)) return FALSE;
+     /* windows with caption are managed */
+     if ((style & WS_CAPTION) == WS_CAPTION) return TRUE;
+     /* windows with thick frame are managed */
+@@ -495,6 +508,15 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
+      * may need to query win_data information about other HWNDs and thus
+      * acquire the lock itself internally. */
+     if (!(managed = is_window_managed(hwnd, swp_flags, fullscreen)) && surface) owner = owner_hint;
++    /* Without an owner, the hint is the window beside the popup, which can
++     * belong to another process. Anchor dropdowns to our foreground window. */
++    if (!managed && surface && owner && owner != hwnd &&
++        !NtUserGetWindowRelative(hwnd, GW_OWNER) && is_noactivate_tool_popup(hwnd))
++    {
++        DWORD pid = 0;
++        NtUserGetWindowThread(owner, &pid);
++        if (pid != GetCurrentProcessId()) owner = NtUserGetForegroundWindow();
++    }
+ 
+     TRACE("hwnd %p owner %p new_rects %s after %p flags %08x\n", hwnd,
+           owner, debugstr_window_rects(new_rects), insert_after, swp_flags);
+-- 
+2.55.0
+
