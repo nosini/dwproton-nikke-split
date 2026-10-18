@@ -1,4 +1,4 @@
-From 933e36a6e6542be9a337cd0fa57f44f0106a8abc Mon Sep 17 00:00:00 2001
+From 18f1c367097b1bba9c988ac19c6f621f4550eb32 Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another
@@ -12,29 +12,37 @@ HWND with GetDC/BitBlt/ReleaseDC. An embedded browser such as NIKKE's
 in-game store then stays white.
 
 Queue clipped 32-bit SRCCOPY images in the DCE and, on ReleaseDC outside
-the GDI lock, map each one read-only into the top-level's process and post
-it an internal message. The receiver checks that the message points to a
-whole mapped view of the expected size, paints the bits through a DC of
-the target window with the saved clip region, and unmaps the view. Other
-raster operations and formats are still discarded as before.
+the GDI lock, copy each one into a section, drop the sender's writable
+view, map the section read-only into the top-level's process and post it
+an internal message. Other raster operations and formats are still
+discarded as before.
+
+Any process can post that message, so the receiver only accepts the
+address of a whole read-only view that starts with the sender's tag, and
+leaves every other mapping alone. It copies the header and region data
+before checking them, so a writer that kept the section cannot change
+them afterwards, and only takes DCX_WINDOW from the sender's flags. It
+then paints the bits through a DC of the target window with the saved
+clip region and unmaps the view.
 
 Reproduced with a test process that BitBlts into a child window of another
 process's top-level: the pixels stay white before and match after,
-including disjoint clip regions.
+including disjoint clip regions. Posting the message with the address of
+an unrelated mapping no longer unmaps it.
 ---
- dlls/win32u/dce.c            | 202 +++++++++++++++++++++++++++++++++++
+ dlls/win32u/dce.c            | 216 +++++++++++++++++++++++++++++++++++
  dlls/win32u/driver.c         |   2 +-
  dlls/win32u/message.c        |   3 +
  dlls/win32u/ntgdi_private.h  |   4 +
  dlls/win32u/ntuser_private.h |   2 +
  include/ntuser.h             |   1 +
- 6 files changed, 213 insertions(+), 1 deletion(-)
+ 6 files changed, 227 insertions(+), 1 deletion(-)
 
 diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
-index eccbcca2aa4..1f87804ddf6 100644
+index eccbcca2aa4..2616022bc59 100644
 --- a/dlls/win32u/dce.c
 +++ b/dlls/win32u/dce.c
-@@ -40,12 +40,200 @@ struct dce
+@@ -40,12 +40,214 @@ struct dce
      struct list entry;         /* entry in global DCE list */
      HDC         hdc;
      HWND        hwnd;
@@ -47,11 +55,14 @@ index eccbcca2aa4..1f87804ddf6 100644
                                    always >= 1 for class DCEs */
  };
  
++#define FOREIGN_IMAGE_MAGIC 0x6d696777  /* "wgim" */
++
 +/* A foreign top-level has no local window_surface. Bitmap copies reaching
 + * the null driver must be painted by the top-level's process instead. Keep
 + * immutable updates until ReleaseDC, outside the GDI lock. */
 +struct foreign_image_data
 +{
++    UINT magic;
 +    RECT rect;
 +    UINT flags, region_size;
 +    BITMAPINFO info;
@@ -127,6 +138,7 @@ index eccbcca2aa4..1f87804ddf6 100644
 +    image->hwnd = dce->hwnd;
 +    image->size = size;
 +    memset( &image->data, 0, sizeof(image->data) );
++    image->data.magic = FOREIGN_IMAGE_MAGIC;
 +    image->data.rect = dst->visrect;
 +    image->data.flags = dce->flags & DCX_WINDOW;
 +    image->data.region_size = region_size;
@@ -169,6 +181,8 @@ index eccbcca2aa4..1f87804ddf6 100644
 +        if (NtMapViewOfSection( section, GetCurrentProcess(), &local, 0, 0, NULL,
 +                                &view_size, ViewUnmap, 0, PAGE_READWRITE )) goto done;
 +        memcpy( local, &image->data, image->size );
++        NtUnmapViewOfSection( GetCurrentProcess(), local );
++        local = NULL;
 +        if (NtOpenProcess( &process, PROCESS_VM_OPERATION, NULL, &id )) goto done;
 +        view_size = 0;
 +        if (NtMapViewOfSection( section, process, &remote, 0, 0, NULL,
@@ -189,53 +203,61 @@ index eccbcca2aa4..1f87804ddf6 100644
 +
 +void receive_foreign_window_image( HWND toplevel, HWND hwnd, void *mapping )
 +{
-+    const struct foreign_image_data *image = mapping;
-+    const BITMAPINFOHEADER *header;
-+    const RGNDATA *region_data;
++    const struct foreign_image_data *shared = mapping;
++    struct foreign_image_data image;
++    const BITMAPINFOHEADER *header = &image.info.bmiHeader;
++    RGNDATA *region_data = NULL;
 +    MEMORY_BASIC_INFORMATION info;
 +    SIZE_T size;
 +    HRGN region;
 +    HDC hdc;
 +
-+    /* Only use and unmap a whole view mapped for us, not any posted address. */
-+    if (!image) return;
++    /* Only use and unmap a whole read-only view that a sender filled for us,
++     * never an unrelated mapping whose address was posted. */
++    if (!mapping) return;
 +    if (NtQueryVirtualMemory( GetCurrentProcess(), mapping, MemoryBasicInformation,
 +                              &info, sizeof(info), NULL ) ||
-+        info.Type != MEM_MAPPED || info.AllocationBase != mapping)
++        info.Type != MEM_MAPPED || info.State != MEM_COMMIT || info.Protect != PAGE_READONLY ||
++        info.AllocationBase != mapping || info.RegionSize < sizeof(image))
 +        return;
-+    header = &image->info.bmiHeader;
-+    region_data = (const RGNDATA *)(image + 1);
-+    if (info.RegionSize < sizeof(*image) ||
-+        image->region_size < sizeof(RGNDATAHEADER) ||
-+        image->region_size > info.RegionSize - sizeof(*image) ||
-+        region_data->rdh.nCount > (image->region_size - sizeof(RGNDATAHEADER)) / sizeof(RECT) ||
++    /* The section may still be writable elsewhere: check and use local copies. */
++    image = *shared;
++    if (image.magic != FOREIGN_IMAGE_MAGIC) return;
++    if (image.region_size < sizeof(RGNDATAHEADER) ||
++        image.region_size > info.RegionSize - sizeof(image) ||
 +        header->biPlanes != 1 || header->biBitCount != 32 || header->biCompression != BI_RGB ||
 +        header->biWidth <= 0 || header->biHeight >= 0 ||
 +        header->biWidth > 0x8000 || -header->biHeight > 0x8000)
 +        goto done;
 +    size = (SIZE_T)header->biWidth * -header->biHeight * 4;
-+    if (size > info.RegionSize - sizeof(*image) - image->region_size) goto done;
++    if (size > info.RegionSize - sizeof(image) - image.region_size) goto done;
++    if (!(region_data = malloc( image.region_size ))) goto done;
++    memcpy( region_data, shared + 1, image.region_size );
++    if (region_data->rdh.dwSize < sizeof(RGNDATAHEADER) ||
++        region_data->rdh.nCount > (image.region_size - sizeof(RGNDATAHEADER)) / sizeof(RECT))
++        goto done;
 +    if (NtUserGetAncestor(hwnd, GA_ROOT) != toplevel) goto done;
-+    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | image->flags ))) goto done;
-+    if ((region = NtGdiExtCreateRegion( NULL, image->region_size, region_data )))
++    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | (image.flags & DCX_WINDOW) ))) goto done;
++    if ((region = NtGdiExtCreateRegion( NULL, image.region_size, region_data )))
 +    {
 +        NtGdiExtSelectClipRgn( hdc, region, RGN_AND );
-+        NtGdiSetDIBitsToDeviceInternal( hdc, image->rect.left, image->rect.top,
-+                                       image->info.bmiHeader.biWidth, -image->info.bmiHeader.biHeight,
-+                                       0, 0, 0, -image->info.bmiHeader.biHeight,
-+                                       (const BYTE *)region_data + image->region_size,
-+                                       &image->info, DIB_RGB_COLORS, 0, 0, FALSE, NULL );
++        NtGdiSetDIBitsToDeviceInternal( hdc, image.rect.left, image.rect.top,
++                                       header->biWidth, -header->biHeight,
++                                       0, 0, 0, -header->biHeight,
++                                       (const BYTE *)(shared + 1) + image.region_size,
++                                       &image.info, DIB_RGB_COLORS, 0, 0, FALSE, NULL );
 +        NtGdiDeleteObjectApp( region );
 +    }
 +    NtUserReleaseDC( hwnd, hdc );
 + done:
++    free( region_data );
 +    NtUnmapViewOfSection( GetCurrentProcess(), mapping );
 +}
 +
  static struct list dce_list = LIST_INIT(dce_list);
  
  #define DCE_CACHE_SIZE 64
-@@ -911,6 +1099,14 @@ static void update_visible_region( struct dce *dce )
+@@ -911,6 +1113,14 @@ static void update_visible_region( struct dce *dce )
          }
      }
  
@@ -250,7 +272,7 @@ index eccbcca2aa4..1f87804ddf6 100644
      if (surface)
      {
          user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &top_rect, flags );
-@@ -939,6 +1135,7 @@ static void update_visible_region( struct dce *dce )
+@@ -939,6 +1149,7 @@ static void update_visible_region( struct dce *dce )
   */
  static void release_dce( struct dce *dce )
  {
@@ -258,7 +280,7 @@ index eccbcca2aa4..1f87804ddf6 100644
      if (!dce->hwnd) return;  /* already released */
  
      set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
-@@ -984,6 +1181,7 @@ BOOL delete_dce( struct dce *dce )
+@@ -984,6 +1195,7 @@ BOOL delete_dce( struct dce *dce )
      {
          list_remove( &dce->entry );
          if (dce->clip_rgn) NtGdiDeleteObjectApp( dce->clip_rgn );
@@ -266,7 +288,7 @@ index eccbcca2aa4..1f87804ddf6 100644
          free( dce );
      }
      user_unlock();
-@@ -1024,6 +1222,9 @@ static struct dce *alloc_dce(void)
+@@ -1024,6 +1236,9 @@ static struct dce *alloc_dce(void)
          free( dce );
          return 0;
      }
@@ -276,7 +298,7 @@ index eccbcca2aa4..1f87804ddf6 100644
      dce->hwnd      = 0;
      dce->clip_rgn  = 0;
      dce->flags     = 0;
-@@ -1290,6 +1491,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
+@@ -1290,6 +1505,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
      dce = get_dc_dce( hdc );
      if (dce && dce->count && dce->hwnd)
      {

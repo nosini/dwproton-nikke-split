@@ -46,7 +46,7 @@ python3 prepare-runner.py
 
 The script finds an unmodified DWProton 11.0-14 installation, checks its
 four original modules against their published-build checksums, and makes
-a separate `DWProton-11.0-14-nikke-split-r5` runner. The original and the
+a separate `DWProton-11.0-14-nikke-split-r6` runner. The original and the
 earlier experimental runners are preserved.
 An installation elsewhere can be supplied as the first argument.
 
@@ -86,6 +86,11 @@ probe fails its pixel check with the first build and passes with revision 2,
 including disjoint clipping regions and parent-owned child windows.
 Since revision 5, the receiving process only uses and unmaps a posted
 image if it is a whole mapped view of the size its header describes.
+Since revision 6, it also requires a read-only view that starts with the
+sender's tag, checks private copies of the header and region data, and
+leaves any other mapping alone; the sender drops its writable view before
+posting. `tests/forged-probe.c` posts the message with the address of an
+unrelated mapping: revision 5 unmaps it, revision 6 does not.
 The OpenGL probe still passes with revision 2. In NIKKE, revision 2 renders
 the store, and opening and closing it keeps the game running.
 

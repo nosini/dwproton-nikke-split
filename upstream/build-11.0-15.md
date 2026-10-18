@@ -38,6 +38,15 @@ negative control for that case uses Mutter. The dropdown probe checks
 delivery of a wheel event; it does not establish that NIKKE's dropdown
 actually scrolls.
 
+The win32u patch was later hardened: the receiver only accepts a whole
+read-only view starting with the sender's tag, checks private copies of the
+header and region data, masks the sender's DC flags to `DCX_WINDOW`, and
+leaves any other mapping alone; the sender drops its writable view before
+posting. All ten checks passed again with the hardened module.
+`tests/forged-probe.c` posts the internal message with the address of an
+unrelated writable and read-only mapping: the previous module unmapped the
+writable one (exit 1); the hardened module leaves both mapped (exit 0).
+
 The standalone installation needed aliases for `i386-unix/wine64` and
 `i386-unix/wine64-preloader` pointing to the corresponding x86-64 loaders:
 the fork's child-process loader expects Proton's directory layout.
