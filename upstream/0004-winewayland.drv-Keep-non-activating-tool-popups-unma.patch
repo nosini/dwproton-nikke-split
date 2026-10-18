@@ -1,4 +1,4 @@
-From 912e78d18282041d6c70f0d3f8e01e0edb66fc57 Mon Sep 17 00:00:00 2001
+From a0f4e9f47545f941f4fc9df9145394c968e4489f Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 4/4] winewayland.drv: Keep non-activating tool popups
@@ -23,7 +23,7 @@ Chromium-style popup under Mutter, with and without Proton.
  1 file changed, 22 insertions(+)
 
 diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
-index 9ea9385..94e8425 100644
+index 9ea93852983..94e84257371 100644
 --- a/dlls/winewayland.drv/window.c
 +++ b/dlls/winewayland.drv/window.c
 @@ -409,6 +409,18 @@ static BOOL has_owned_popups(HWND hwnd)
@@ -69,6 +69,3 @@ index 9ea9385..94e8425 100644
  
      TRACE("hwnd %p owner %p new_rects %s after %p flags %08x\n", hwnd,
            owner, debugstr_window_rects(new_rects), insert_after, swp_flags);
--- 
-2.55.0
-

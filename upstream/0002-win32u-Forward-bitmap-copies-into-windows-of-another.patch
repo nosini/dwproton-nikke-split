@@ -1,4 +1,4 @@
-From 0336e9a8e766d95ffcd2cc867b38aee7ea492400 Mon Sep 17 00:00:00 2001
+From 933e36a6e6542be9a337cd0fa57f44f0106a8abc Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another
@@ -31,7 +31,7 @@ including disjoint clip regions.
  6 files changed, 213 insertions(+), 1 deletion(-)
 
 diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
-index eccbcca..1f87804 100644
+index eccbcca2aa4..1f87804ddf6 100644
 --- a/dlls/win32u/dce.c
 +++ b/dlls/win32u/dce.c
 @@ -40,12 +40,200 @@ struct dce
@@ -285,7 +285,7 @@ index eccbcca..1f87804 100644
          if (end_paint || (dce->flags & DCX_CACHE)) delete_clip_rgn( dce );
          if (dce->flags & DCX_CACHE)
 diff --git a/dlls/win32u/driver.c b/dlls/win32u/driver.c
-index 793de3f..a8b8d9a 100644
+index 793de3fd27e..a8b8d9acffd 100644
 --- a/dlls/win32u/driver.c
 +++ b/dlls/win32u/driver.c
 @@ -412,7 +412,7 @@ static DWORD nulldrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
@@ -298,7 +298,7 @@ index 793de3f..a8b8d9a 100644
  
  static UINT nulldrv_RealizeDefaultPalette( PHYSDEV dev )
 diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
-index 138b553..4b49daf 100644
+index 138b5531b6c..4b49daf3bff 100644
 --- a/dlls/win32u/message.c
 +++ b/dlls/win32u/message.c
 @@ -2277,6 +2277,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
@@ -312,7 +312,7 @@ index 138b553..4b49daf 100644
      {
          RECT client;
 diff --git a/dlls/win32u/ntgdi_private.h b/dlls/win32u/ntgdi_private.h
-index 72b36ec..04b5fe9 100644
+index 72b36ec7e93..04b5fe9fe9d 100644
 --- a/dlls/win32u/ntgdi_private.h
 +++ b/dlls/win32u/ntgdi_private.h
 @@ -163,6 +163,10 @@ extern HBRUSH create_brush( const LOGBRUSH *brush );
@@ -327,7 +327,7 @@ index 72b36ec..04b5fe9 100644
  extern BOOL clip_device_rect( DC *dc, RECT *dst, const RECT *src );
  extern BOOL clip_visrect( DC *dc, RECT *dst, const RECT *src );
 diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
-index e02e484..4cac1f0 100644
+index e02e484900e..4cac1f05c0f 100644
 --- a/dlls/win32u/ntuser_private.h
 +++ b/dlls/win32u/ntuser_private.h
 @@ -255,4 +255,6 @@ WND *get_win_ptr( HWND hwnd );
@@ -338,7 +338,7 @@ index e02e484..4cac1f0 100644
 +
  #endif /* __WINE_NTUSER_PRIVATE_H */
 diff --git a/include/ntuser.h b/include/ntuser.h
-index 5f0a0b0..011041b 100644
+index 5f0a0b04fe9..011041b2327 100644
 --- a/include/ntuser.h
 +++ b/include/ntuser.h
 @@ -655,6 +655,7 @@ enum wine_internal_message
@@ -349,6 +349,3 @@ index 5f0a0b0..011041b 100644
      WM_WINE_FIRST_DRIVER_MSG = 0x80001000,  /* range of messages reserved for the USER driver */
      WM_WINE_CLIPCURSOR = 0x80001ff0, /* internal driver notification messages */
      WM_WINE_SETCURSOR,
--- 
-2.55.0
-

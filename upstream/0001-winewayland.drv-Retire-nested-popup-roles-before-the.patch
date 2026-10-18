@@ -1,4 +1,4 @@
-From 4461ca450bb5109db66ef8ff9b9540bf24f418cf Mon Sep 17 00:00:00 2001
+From 67b47bbc693493211c793cf5793a78b44539f669 Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 1/4] winewayland.drv: Retire nested popup roles before their
@@ -23,7 +23,7 @@ Weston, with DWProton 11.0-14 and GE-Proton 11-9.
  2 files changed, 18 insertions(+), 6 deletions(-)
 
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
-index 9c55fa7..512e32e 100644
+index 7e72ad8e1e7..92f991e0aee 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
 +++ b/dlls/winewayland.drv/wayland_surface.c
 @@ -249,15 +249,9 @@ static void xdg_popup_handle_done(void *private, struct xdg_popup *xdg_popup)
@@ -51,7 +51,7 @@ index 9c55fa7..512e32e 100644
  
      surface->wl_surface = wl_compositor_create_surface(process_wayland.wl_compositor);
      if (!surface->wl_surface)
-@@ -666,6 +662,7 @@ void wayland_surface_make_popup(struct wayland_surface *surface,
+@@ -678,6 +674,7 @@ void wayland_surface_make_popup(struct wayland_surface *surface,
      xdg_popup_add_listener(surface->xdg_popup, &xdg_popup_listener, surface->hwnd);
  
      surface->owner_hwnd = owner->hwnd;
@@ -59,7 +59,7 @@ index 9c55fa7..512e32e 100644
      wl_surface_commit(surface->wl_surface);
      wl_display_flush(process_wayland.wl_display);
  
-@@ -684,8 +681,21 @@ err:
+@@ -696,8 +693,21 @@ err:
   */
  void wayland_surface_clear_role(struct wayland_surface *surface)
  {
@@ -82,7 +82,7 @@ index 9c55fa7..512e32e 100644
  
      if (surface->wp_fractional_scale_v1)
 diff --git a/dlls/winewayland.drv/waylanddrv.h b/dlls/winewayland.drv/waylanddrv.h
-index c2f1fd4..a26e2fd 100644
+index 1879f1131f6..868d7bccbfb 100644
 --- a/dlls/winewayland.drv/waylanddrv.h
 +++ b/dlls/winewayland.drv/waylanddrv.h
 @@ -401,6 +401,8 @@ struct wayland_surface
@@ -94,6 +94,3 @@ index c2f1fd4..a26e2fd 100644
  
      union
      {
--- 
-2.55.0
-

@@ -31,6 +31,11 @@ not scroll them yet. The patches address these reproduced driver failures:
 The launcher fallback remains enabled for `nikke_launcher.exe` and
 `tbs_browser.exe`. No game files or registry overrides are involved.
 
+The submission series in `upstream/` now targets the DWProton 11.0-15
+source branch. The installer and bundled modules below remain for the
+published 11.0-14 runner; modules built against 11.0-15 must not be mixed
+into that runner. See [the 11.0-15 build report](upstream/build-11.0-15.md).
+
 ## Try the prepared modules
 
 Close NIKKE and its launcher, then run from this checkout:

@@ -24,9 +24,27 @@ closing at once). Four commits, in this order:
    unowned popup whose owner hint (the window beside it) belongs to another
    process, the foreground window is used as the parent instead.
 
-**Testing.** Each commit builds. Small Win32 reproducers, run with the
-DWProton 11.0-14 runner and these modules swapped in, under Weston and
-headless Mutter with virtual input:
+**Testing.** Each commit builds on 11.0-15. Small Win32 reproducers were
+run on a standalone 11.0-15 Wine build (Wayland only, without X11, audio
+or Schannel), with the unpatched and then the patched modules:
+
+| Check | Unpatched | Patched |
+| --- | --- | --- |
+| Cross-process software bitmap, Weston | Wrong pixels | Correct pixels |
+| Disjoint bitmap clipping, Weston | — | Passes |
+| Helper-owned child under a foreign top-level, Weston | — | Passes |
+| OpenGL rendering, Weston | — | Passes |
+| Nested popup teardown, Mutter | Protocol error | Survives |
+| Chromium-style dropdown, Mutter | Loses focus | Stays open; click, wheel and key delivered |
+| Dropdown hide and reopen, Mutter | — | Passes |
+
+Weston accepts the unpatched popup teardown, so that case uses Mutter. The
+dropdown check shows that a wheel event is delivered, not that a store
+dropdown scrolls.
+
+The same reproducers were run earlier with the DWProton 11.0-14 runner and
+these modules swapped in, under Weston and headless Mutter with virtual
+input:
 
 - nested popups: owner hidden before its popup, protocol error before,
   survives after (also through `proton run`);
@@ -40,12 +58,18 @@ headless Mutter with virtual input:
   also through `proton run` with a console window beside the popup; hiding
   and reshowing works.
 
-In NIKKE the store renders, closing it keeps the game running, and its
-dropdowns stay open and work with the mouse, scrollbar and keyboard.
+In NIKKE with the series applied to 11.0-14, the store renders, closing it
+keeps the game running, and its dropdowns stay open and work with the
+mouse, scrollbar and keyboard. The 11.0-15 build has not been tested in
+NIKKE.
 
 **Known limits.** The mouse wheel does not scroll a store dropdown yet.
 Forwarded images are copied once per `ReleaseDC`; a view posted to a
 window that is destroyed before handling it is not unmapped. Hardware
 cross-process output is not covered.
 
-The series is based on `dwproton/11.0-14`; REBASE-NOTE.
+The series is rebased onto `dwproton/11.0-15`, Wine
+`f078dded59f559884b58fbf0769847e9c9fbb3ac`. Only the context of the
+user32 helper-list deletion changed; the other three patches are unchanged.
+
+This pull request and its patches were prepared with the help of generative AI.

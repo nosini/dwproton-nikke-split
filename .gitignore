@@ -1,2 +1,5 @@
 # Byte-code left behind by running the scripts.
 __pycache__/
+
+# Source-branch build artifacts, separate from the published-runner modules.
+/builds/
