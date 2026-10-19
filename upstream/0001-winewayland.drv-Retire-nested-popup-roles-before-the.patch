@@ -1,4 +1,4 @@
-From 67b47bbc693493211c793cf5793a78b44539f669 Mon Sep 17 00:00:00 2001
+From 6d0a7c37c4d837abacd4c86bb7e826abcff79bec Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 1/4] winewayland.drv: Retire nested popup roles before their
@@ -14,13 +14,19 @@ Track live popup descendants and clear their roles before the parent's.
 Their window threads are asked to update the role afterwards, which also
 covers the compositor dismissing a popup.
 
+These links reach into the surfaces of other windows, which may belong
+to other threads, so destroy a window's surface with the window data
+lock held, as the driver's other callers of wayland_surface_destroy
+already do.
+
 Seen with NIKKE's in-game store: closing it ended the game. Reproduced
 with a Win32 test hiding an owner before its nested popup, on GNOME and
 Weston, with DWProton 11.0-14 and GE-Proton 11-9.
 ---
  dlls/winewayland.drv/wayland_surface.c | 22 ++++++++++++++++------
  dlls/winewayland.drv/waylanddrv.h      |  2 ++
- 2 files changed, 18 insertions(+), 6 deletions(-)
+ dlls/winewayland.drv/window.c          |  8 +++++++-
+ 3 files changed, 25 insertions(+), 7 deletions(-)
 
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
 index 7e72ad8e1e7..92f991e0aee 100644
@@ -94,3 +100,22 @@ index 1879f1131f6..868d7bccbfb 100644
  
      union
      {
+diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
+index 9ea93852983..594e3866e58 100644
+--- a/dlls/winewayland.drv/window.c
++++ b/dlls/winewayland.drv/window.c
+@@ -101,7 +101,13 @@ static void wayland_win_data_destroy(struct wayland_win_data *data)
+     pthread_mutex_unlock(&win_data_mutex);
+ 
+     if (data->stashed_client) client_surface_release(&data->stashed_client->client);
+-    if (data->wayland_surface) wayland_surface_destroy(data->wayland_surface);
++    if (data->wayland_surface)
++    {
++        /* Popup links reach into the surfaces of other windows. */
++        pthread_mutex_lock(&win_data_mutex);
++        wayland_surface_destroy(data->wayland_surface);
++        pthread_mutex_unlock(&win_data_mutex);
++    }
+     if (data->window_contents) wayland_shm_buffer_unref(data->window_contents);
+     free(data);
+ }

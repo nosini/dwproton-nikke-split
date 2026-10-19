@@ -6,7 +6,13 @@ closing at once). Four commits, in this order:
 1. **winewayland.drv: Retire nested popup roles before their parent.**
    Tracks live popup descendants and clears their roles first, so hiding an
    owner before its owned popups no longer violates xdg-shell's destruction
-   order. Compositor dismissal goes through the same path. Stands alone.
+   order. Compositor dismissal goes through the same path. A destroyed
+   window's surface is torn down with the window data lock held, since the
+   popup lists link surfaces of windows on other threads. Stands alone.
+   GE-Proton fixed the same order independently in
+   [b492349d][ge-fix] (from GE-Proton11-10) by walking all windows for
+   popups owned by the surface; that patch targets GE-Proton's driver and
+   does not apply here.
 2. **win32u: Forward bitmap copies into windows of another process.** For a
    DC whose top-level belongs to another process and that has no window
    surface, clipped 32-bit `SRCCOPY` images are queued and, on `ReleaseDC`,
@@ -28,52 +34,40 @@ closing at once). Four commits, in this order:
    process, the foreground window is used as the parent instead.
 
 **Testing.** Each commit builds on 11.0-15. Small Win32 reproducers were
-run on a standalone 11.0-15 Wine build (Wayland only, without X11, audio
-or Schannel), with the unpatched and then the patched modules:
+run through `proton run` with the published 11.0-15 runner and with a copy
+of it using the patched modules, on headless Mutter and Weston:
 
-| Check | Unpatched | Patched |
+| Check | 11.0-15 | Patched |
 | --- | --- | --- |
+| Nested popup teardown, Mutter | Protocol error | Survives |
+| Popup teardown from two threads, Mutter | Protocol error | Survives |
 | Cross-process software bitmap, Weston | Wrong pixels | Correct pixels |
 | Disjoint bitmap clipping, Weston | — | Passes |
 | Helper-owned child under a foreign top-level, Weston | — | Passes |
-| OpenGL rendering, Weston | — | Passes |
-| Nested popup teardown, Mutter | Protocol error | Survives |
+| OpenGL output from the helper, Weston | — | Passes |
 | Chromium-style dropdown, Mutter | Loses focus | Stays open; click, wheel and key delivered |
 | Dropdown hide and reopen, Mutter | — | Passes |
 
-Weston accepts the unpatched popup teardown, so that case uses Mutter. The
+Weston accepts the unpatched popup teardown, so those cases use Mutter.
+The two-thread case lets a thread exit with a nested popup pair still
+mapped while the owner's thread hides the owner; without the lock in the
+first patch it also fails with the protocol error, intermittently. The
 dropdown check shows that a wheel event is delivered, not that a store
 dropdown scrolls. A further probe posts the internal message with the
 address of an unrelated mapping; the receiver leaves that mapping alone.
 
-The same reproducers were run earlier with the DWProton 11.0-14 runner and
-these modules swapped in, under Weston and headless Mutter with virtual
-input:
-
-- nested popups: owner hidden before its popup, protocol error before,
-  survives after (also through `proton run`);
-- cross-process `BitBlt` into a child of another process's top-level:
-  pixel check fails before, passes after, with disjoint clip regions, a
-  helper-owned child and repeated frames; OpenGL output from a process
-  named `INTLWebViewHelper.exe` still reaches the parent;
-- Chromium-style dropdown created in the game process: before, it is
-  activated and the browser child loses focus; after, the child keeps
-  focus, and a click, a wheel turn and a key press each reach their window,
-  also through `proton run` with a console window beside the popup; hiding
-  and reshowing works.
-
-In NIKKE with the series applied to 11.0-14, the store renders, closing it
-keeps the game running, and its dropdowns stay open and work with the
-mouse, scrollbar and keyboard. The 11.0-15 build has not been tested in
-NIKKE.
+In NIKKE with the series applied to 11.0-15, as with 11.0-14 before, the
+store renders, closing it keeps the game running, and its dropdowns stay
+open and work with the mouse, scrollbar and keyboard.
 
 **Known limits.** The mouse wheel does not scroll a store dropdown yet.
 Forwarded images are copied once per `ReleaseDC`; a view posted to a
 window that is destroyed before handling it is not unmapped. Hardware
 cross-process output is not covered.
 
-The series is rebased onto `dwproton/11.0-15`, Wine
-`f078dded59f559884b58fbf0769847e9c9fbb3ac`. Only the context of the
-user32 helper-list deletion changed; the other three patches are unchanged.
+The series applies to Wine `b75a4125963073b01d2b3bfce6060d697d02066b`,
+the source of the `dwproton-11.0-15` release.
 
 This pull request and its patches were prepared with the help of generative AI.
+
+[ge-fix]: https://github.com/GloriousEggroll/proton-ge-custom/commit/b492349d0233dcff26c5a585ddd3f2a4c8c3095c

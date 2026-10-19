@@ -1,4 +1,4 @@
-From 18f1c367097b1bba9c988ac19c6f621f4550eb32 Mon Sep 17 00:00:00 2001
+From b8d37879764b49fcca4ed8417a5d1876ee636ded Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another

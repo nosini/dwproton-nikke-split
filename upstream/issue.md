@@ -42,13 +42,13 @@ three.
    popup each time.
 
 I have a four-patch series for these, developed and tested in NIKKE with
-`dwproton/11.0-14` and now rebased onto `dwproton/11.0-15` (Wine
-`f078dded59f559884b58fbf0769847e9c9fbb3ac`). With the series applied to
-11.0-14, the store renders, closing it keeps the game running, and the
+`dwproton/11.0-14` and now applied to the `dwproton-11.0-15` release (Wine
+`b75a4125963073b01d2b3bfce6060d697d02066b`). With the series applied to
+either, the store renders, closing it keeps the game running, and the
 dropdowns stay open and work with the mouse, the scrollbar and the
 keyboard. The mouse wheel does not scroll a dropdown yet.
 
-The 11.0-15 source branch still forces the helper onto X11 and lacks the
-popup and bitmap fixes. The 11.0-15 build has not been tested in NIKKE.
+The 11.0-15 release still forces the helper onto X11 and lacks the popup
+and bitmap fixes.
 
 This issue and the patches were prepared with the help of generative AI.

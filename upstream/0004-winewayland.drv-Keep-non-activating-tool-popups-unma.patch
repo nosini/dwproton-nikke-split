@@ -1,4 +1,4 @@
-From a0f4e9f47545f941f4fc9df9145394c968e4489f Mon Sep 17 00:00:00 2001
+From 14f7386d33044b993cc63acbf6d630aac705c783 Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 4/4] winewayland.drv: Keep non-activating tool popups
@@ -23,10 +23,10 @@ Chromium-style popup under Mutter, with and without Proton.
  1 file changed, 22 insertions(+)
 
 diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
-index 9ea93852983..94e84257371 100644
+index 594e3866e58..c1023b48317 100644
 --- a/dlls/winewayland.drv/window.c
 +++ b/dlls/winewayland.drv/window.c
-@@ -409,6 +409,18 @@ static BOOL has_owned_popups(HWND hwnd)
+@@ -415,6 +415,18 @@ static BOOL has_owned_popups(HWND hwnd)
      return ret;
  }
  
@@ -45,7 +45,7 @@ index 9ea93852983..94e84257371 100644
  static inline HWND get_active_window(void)
  {
      GUITHREADINFO info;
-@@ -431,6 +443,7 @@ static BOOL is_window_managed(HWND hwnd, UINT swp_flags, BOOL fullscreen)
+@@ -437,6 +449,7 @@ static BOOL is_window_managed(HWND hwnd, UINT swp_flags, BOOL fullscreen)
      /* activated windows are managed */
      if (!(swp_flags & (SWP_NOACTIVATE|SWP_HIDEWINDOW))) return TRUE;
      if (hwnd == get_active_window()) return TRUE;
@@ -53,7 +53,7 @@ index 9ea93852983..94e84257371 100644
      /* windows with caption are managed */
      if ((style & WS_CAPTION) == WS_CAPTION) return TRUE;
      /* windows with thick frame are managed */
-@@ -495,6 +508,15 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
+@@ -501,6 +514,15 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
       * may need to query win_data information about other HWNDs and thus
       * acquire the lock itself internally. */
      if (!(managed = is_window_managed(hwnd, swp_flags, fullscreen)) && surface) owner = owner_hint;

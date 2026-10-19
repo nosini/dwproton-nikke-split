@@ -17,7 +17,8 @@ output.mkdir(parents=True, exist_ok=True)
 imports = {
     "kernel32": ["GetModuleHandleA", "Sleep", "ExitProcess", "GetStdHandle", "WriteFile",
                  "GetCommandLineA", "GetModuleFileNameA", "CreateProcessA", "WaitForSingleObject",
-                 "GetExitCodeProcess", "CreateFileMappingA", "MapViewOfFile", "VirtualQuery"],
+                 "GetExitCodeProcess", "CreateFileMappingA", "MapViewOfFile", "VirtualQuery",
+                 "CreateThread", "CreateEventA", "SetEvent", "CloseHandle"],
     "user32": ["RegisterClassA", "CreateWindowExA", "ShowWindow", "DestroyWindow", "UpdateWindow",
                "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect",
                "SetFocus", "GetFocus", "GetWindowRect", "GetWindow", "BeginPaint", "EndPaint",
@@ -33,7 +34,7 @@ for name, exports in imports.items():
     subprocess.run(["llvm-dlltool", "-m", "i386:x86-64", "-d", str(definition),
                     "-l", str(library)], check=True)
     libraries.append(str(library))
-for name in ("window-probe", "render-probe", "dropdown-probe", "forged-probe"):
+for name in ("window-probe", "popup-race-probe", "render-probe", "dropdown-probe", "forged-probe"):
     subprocess.run(["clang", "--target=x86_64-pc-windows-msvc", "-D__WINE_PE_BUILD",
                     "-I", str(args.wine_source / "include"),
                     "-I", str(args.wine_source / "include/msvcrt"),
