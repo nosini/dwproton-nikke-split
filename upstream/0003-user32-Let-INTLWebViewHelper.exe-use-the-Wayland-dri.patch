@@ -1,4 +1,4 @@
-From e842c9209b1e855a5780b5d1fc759ab0805db97b Mon Sep 17 00:00:00 2001
+From 66a302f6876b3bd7ae799045596b42823a9cd46b Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 3/4] user32: Let INTLWebViewHelper.exe use the Wayland driver.
@@ -15,14 +15,14 @@ nikke_launcher.exe and tbs_browser.exe keep their X11 fallback.
  1 file changed, 1 deletion(-)
 
 diff --git a/dlls/user32/user_main.c b/dlls/user32/user_main.c
-index 2182c6449ad..04c611f668a 100644
+index a0e0ec60..4470db72 100644
 --- a/dlls/user32/user_main.c
 +++ b/dlls/user32/user_main.c
-@@ -184,7 +184,6 @@ static BOOL use_x11_launcher_driver( const WCHAR *image, const WCHAR *name )
- 
+@@ -188,7 +188,6 @@ static BOOL use_x11_launcher_driver( const WCHAR *image, const WCHAR *name )
+
      if (!wcsicmp( name, L"nikke_launcher.exe" ) ||
          !wcsicmp( name, L"tbs_browser.exe" ) ||
 -        !wcsicmp( name, L"INTLWebViewHelper.exe" ) ||
          !wcsicmp( name, L"msedgewebview2.exe" ))
          return TRUE;
- 
+

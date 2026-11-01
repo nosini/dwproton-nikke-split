@@ -42,13 +42,15 @@ three.
    popup each time.
 
 I have a four-patch series for these, developed and tested in NIKKE with
-`dwproton/11.0-14` and now applied to the `dwproton-11.0-15` release (Wine
-`b75a4125963073b01d2b3bfce6060d697d02066b`). With the series applied to
-either, the store renders, closing it keeps the game running, and the
-dropdowns stay open and work with the mouse, the scrollbar and the
-keyboard. The mouse wheel does not scroll a dropdown yet.
+11.0-14 and 11.0-15, and now rebased onto the `dwproton-11.0-16` release
+(Wine `dda80c1bc56000053a773cf6f8585331d1bd68f7`). NIKKE was also
+confirmed working with the 11.0-16 build on 2026-11-01.
 
-The 11.0-15 release still forces the helper onto X11 and lacks the popup
-and bitmap fixes.
+11.0-16 adds a popup traversal before selected surface-destruction paths.
+The remaining popup patch reuses it for recursive role teardown instead
+of maintaining separate child lists. The release still forces the helper
+onto X11 and discards the software bitmap copies. With the released runner,
+the standalone popup probe still hits the protocol error, and the software
+bitmap probe still exits with incorrect pixels.
 
 This issue and the patches were prepared with the help of generative AI.

@@ -3,17 +3,16 @@
 ## Patch series
 
 `upstream/` holds the fix as four Wine commits. They apply with `git am`
-to wine-dwproton commit `b75a4125963073b01d2b3bfce6060d697d02066b`, the
-Wine source of the published `dwproton-11.0-15` release:
+to wine-dwproton commit `dda80c1bc56000053a773cf6f8585331d1bd68f7`, the
+Wine source of the published `dwproton-11.0-16` release:
 
 1. **winewayland.drv: Retire nested popup roles before their parent.**
-   Each surface keeps a list of its live child popups, and clearing a
-   surface's role clears its children's roles first, as xdg-shell
-   requires. Their window threads are asked to update the role afterwards;
-   compositor dismissal goes through the same path. Because these lists
-   link surfaces of windows that can belong to other threads, a destroyed
-   window's surface is torn down with the window data lock held, as the
-   driver's other callers of `wayland_surface_destroy` already do.
+   Reuses 11.0-16's `wayland_surface_reparent_popups` traversal from the
+   common role-clearing function, making it recursive and covering hiding
+   and compositor dismissal. The previous per-surface child lists and
+   upstream's individual destruction-site calls are removed. A destroyed
+   window's surface is torn down under the window data lock because the
+   traversal visits windows belonging to other threads.
 2. **win32u: Forward bitmap copies into windows of another process.** For a
    DC whose top-level window belongs to another process and that has no
    window surface, clipped 32-bit `SRCCOPY` images are queued. On
@@ -33,27 +32,19 @@ Wine source of the published `dwproton-11.0-15` release:
 
 `upstream/` also holds the drafts for offering the series to DWProton.
 
-## GE-Proton's fix for the popup order
+## Changes already present in 11.0-16
 
-GE-Proton fixed the same popup destruction order independently, for
-crashes in AION 2 and Battle.net ([issue 834][ge-issue]), in commit
-[b492349d][ge-commit] as
-[0072-winewayland-destroy-owned-popups-before-their-parent-role.patch][ge-patch].
-It is included from GE-Proton11-10. Before a surface with an `xdg_surface`
-loses its role, that patch walks all windows under the window data lock
-and clears the roles of the popups the window owns, recursively. It is
-written for GE-Proton's own Wayland driver and does not apply to
-DWProton's.
+The released Wine source adds `wayland_surface_reparent_popups` and calls
+it before three surface-destruction paths. Patch 1 now extends that
+traversal instead of maintaining separate child lists. Moving it to
+`wayland_surface_clear_role` also covers role clearing when a window is
+hidden and when the compositor dismisses a popup, and retires deeper
+nested popups recursively.
 
-The first patch here keeps a list of live child popups per surface
-instead, so only the affected popups are visited, and popups dismissed by
-the compositor go through the same ordered teardown. Because those lists
-link surfaces of windows on different threads, a destroyed window's
-surface is torn down with the window data lock held.
-
-[ge-issue]: https://github.com/GloriousEggroll/proton-ge-custom/issues/834
-[ge-commit]: https://github.com/GloriousEggroll/proton-ge-custom/commit/b492349d0233dcff26c5a585ddd3f2a4c8c3095c
-[ge-patch]: https://github.com/GloriousEggroll/proton-ge-custom/blob/b492349d0233dcff26c5a585ddd3f2a4c8c3095c/patches/wine-hotfixes/em-fixups/0072-winewayland-destroy-owned-popups-before-their-parent-role.patch
+The release still discards the foreign-window software copies targeted by
+patch 2, still forces `INTLWebViewHelper.exe` to X11, and still treats the
+store's thick-frame non-activating dropdown as managed. Patches 2–4 remain
+necessary and retain their behavior.
 
 ## Rebuilding the modules
 
@@ -126,28 +117,18 @@ and run each `.exe` with `proton run` from the runner being tested, with
 
 ## Validation
 
-The probes were run through `proton run` with the published DWProton
-11.0-15 runner and with the runner made by `prepare-runner.py`, on
-headless Mutter and Weston:
+The 11.0-16 build and packaged-runner probe results are recorded in
+[build-11.0-16.md](build-11.0-16.md). The probes run through `proton run`
+with the published runner and with the copy made by `prepare-runner.py`.
 
-| Check | DWProton 11.0-15 | Revision 7 |
-| --- | --- | --- |
-| Nested popup teardown, Mutter | Protocol error | Survives |
-| Popup teardown from two threads, Mutter | Protocol error | Survives 25 of 25 runs |
-| Cross-process software bitmap, Weston | Discarded, status 7 | Correct pixels |
-| Disjoint bitmap clipping, Weston | — | Passes |
-| Helper-owned child under a foreign top-level, Weston | — | Passes |
-| OpenGL output from the helper, Weston | — | Passes |
-| Forged bitmap message, Weston | — | Mappings left alone |
-| Chromium-style dropdown, Mutter | Loses focus, status 8 | Keeps focus; click, wheel and key delivered |
-| Dropdown hide and reopen, Mutter | — | Passes |
-
-Each two-thread run has 300 iterations. The same series without the
-teardown lock failed 9 of 25 such runs: 8 with the protocol error, and
-once Mutter dropped the connection over an unreadable request. The
-dropdown probe shows that a wheel event is delivered, not that a store
-dropdown scrolls.
+Earlier 11.0-15 revision 7 passed the same bitmap, clipping, OpenGL,
+forged-message and dropdown tests, plus 25 runs of 300 two-thread popup
+iterations. The series without the teardown lock failed 9 of those 25
+runs. The 11.0-16 popup implementation reuses upstream's traversal instead
+of that revision's child lists, so its results are recorded separately.
 
 In NIKKE with revision 7, the store renders, closing it keeps the game
 running, and the dropdowns work with the mouse, the scrollbar and the
-keyboard.
+keyboard. On 2026-11-01, the user also confirmed that NIKKE still works
+with the 11.0-16 runner. Wheel-event delivery in the probe does not
+establish that a store dropdown scrolls.

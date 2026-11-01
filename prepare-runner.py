@@ -11,16 +11,16 @@ import subprocess
 import tempfile
 
 
-TOOL = "DWProton-11.0-15-nikke-split-r7"
+TOOL = "DWProton-11.0-16-nikke-split-r8"
 ORIGINALS = {
     "files/lib/wine/x86_64-unix/win32u.so":
         "d1350fb713b468d75767dce23e4748a171c73e27efa189afbf233abe9816b572",
     "files/lib/wine/x86_64-unix/winewayland.so":
-        "bcbd5535aad66ab9b4bf12e93faf31c8fa43fc0dd4cba0532805c52778fb2f1b",
+        "4571eea2a4b52046d297f42990e5bbc8ae73c0d32d18cc46bbe8117cf6bede45",
     "files/lib/wine/x86_64-windows/user32.dll":
-        "26b500666ab2dcada42fe88ec2c717da1ac8be55e04d02c2c89985111d257557",
+        "d7a66e75545f2f44a77e20f578e7e09f4bab46b02a4530cfed8008412b60a253",
     "files/lib/wine/i386-windows/user32.dll":
-        "6c6ffb1370ac21fc9b8a62e76da7ed8312254ee2982416590891cb7a3c69040b",
+        "6b2e67c5e69c2beb19e39f90610677a365a26c625fccb6d3056711544af1cdc0",
 }
 
 
@@ -51,18 +51,18 @@ def find_original():
             for candidate in sorted(root.iterdir()):
                 if candidate.is_dir() and matches(candidate):
                     return candidate
-    raise ValueError("DWProton 11.0-15 was not found; pass its folder as the first argument.")
+    raise ValueError("DWProton 11.0-16 was not found; pass its folder as the first argument.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", nargs="?", type=Path, help="original DWProton 11.0-15 folder")
+    parser.add_argument("source", nargs="?", type=Path, help="original DWProton 11.0-16 folder")
     parser.add_argument("--destination", type=Path,
                         default=Path.home() / ".local/share/Steam/compatibilitytools.d" / TOOL)
     args = parser.parse_args()
     source = (args.source or find_original()).expanduser().resolve(strict=True)
     if not matches(source):
-        raise ValueError("The source modules do not match unmodified DWProton 11.0-15.")
+        raise ValueError("The source modules do not match unmodified DWProton 11.0-16.")
     modules = Path(__file__).resolve().parent / "modules"
     manifest = json.loads((modules / "sha256.json").read_text())
     if set(manifest) != set(ORIGINALS):
@@ -86,7 +86,7 @@ def main():
         # Zero keeps this test runner behind released runners for automatic selection.
         (stage / "version").write_text(f"0 {TOOL}\n")
         vdf = stage / "compatibilitytool.vdf"
-        vdf.write_text(vdf.read_text().replace("dwproton-11.0-15-x86_64", TOOL))
+        vdf.write_text(vdf.read_text().replace("dwproton-11.0-16-x86_64", TOOL))
         if os.path.lexists(destination):
             raise ValueError(f"Destination already exists: {destination}")
         stage.rename(destination)

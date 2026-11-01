@@ -35,11 +35,13 @@ for name, exports in imports.items():
                     "-l", str(library)], check=True)
     libraries.append(str(library))
 for name in ("window-probe", "popup-race-probe", "render-probe", "dropdown-probe", "forged-probe"):
+    # A separate console window can steal focus before the dropdown check starts.
+    subsystem = "windows" if name == "dropdown-probe" else "console"
     subprocess.run(["clang", "--target=x86_64-pc-windows-msvc", "-D__WINE_PE_BUILD",
                     "-I", str(args.wine_source / "include"),
                     "-I", str(args.wine_source / "include/msvcrt"),
                     "-fuse-ld=lld", "-nostdlib", "-fno-stack-protector", str(source / f"{name}.c"),
-                    *libraries, "-Wl,/entry:mainCRTStartup", "-Wl,/subsystem:console",
+                    *libraries, "-Wl,/entry:mainCRTStartup", f"-Wl,/subsystem:{subsystem}",
                     "-o", str(output / f"{name}.exe")], check=True)
 shutil.copyfile(output / "render-probe.exe", output / "INTLWebViewHelper.exe")
 # The dropdown probe launches its helper under the same name from its own directory.

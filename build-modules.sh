@@ -1,10 +1,10 @@
 #!/bin/bash
 # Build the four replacement modules from the Wine source of the published
-# DWProton 11.0-15 runner with the patch series in upstream/ applied, then
+# DWProton 11.0-16 runner with the patch series in upstream/ applied, then
 # replace modules/ and its checksum manifest with them.
 set -euo pipefail
 
-base=b75a4125963073b01d2b3bfce6060d697d02066b
+base=dda80c1bc56000053a773cf6f8585331d1bd68f7
 source_url=https://dawn.wine/dawn-winery/wine-dwproton.git
 modules=(
     dlls/winewayland.drv/winewayland.so

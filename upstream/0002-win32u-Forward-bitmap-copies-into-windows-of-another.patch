@@ -1,4 +1,4 @@
-From b8d37879764b49fcca4ed8417a5d1876ee636ded Mon Sep 17 00:00:00 2001
+From e2a50eb64d7e0cb5b28910297425b3b2a4af9e24 Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another
@@ -39,7 +39,7 @@ an unrelated mapping no longer unmaps it.
  6 files changed, 227 insertions(+), 1 deletion(-)
 
 diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
-index eccbcca2aa4..2616022bc59 100644
+index eccbcca2..2616022b 100644
 --- a/dlls/win32u/dce.c
 +++ b/dlls/win32u/dce.c
 @@ -40,12 +40,214 @@ struct dce
@@ -54,7 +54,7 @@ index eccbcca2aa4..2616022bc59 100644
      LONG        count;         /* usage count; 0 or 1 for cache DCEs, always 1 for window DCEs,
                                    always >= 1 for class DCEs */
  };
- 
+
 +#define FOREIGN_IMAGE_MAGIC 0x6d696777  /* "wgim" */
 +
 +/* A foreign top-level has no local window_surface. Bitmap copies reaching
@@ -255,12 +255,12 @@ index eccbcca2aa4..2616022bc59 100644
 +}
 +
  static struct list dce_list = LIST_INIT(dce_list);
- 
+
  #define DCE_CACHE_SIZE 64
 @@ -911,6 +1113,14 @@ static void update_visible_region( struct dce *dce )
          }
      }
- 
+
 +    dce->foreign_toplevel = 0;
 +    dce->foreign_pid = 0;
 +    if (!surface && !user_driver->dc_funcs.pPutImage && !is_current_process_window(top_win))
@@ -278,7 +278,7 @@ index eccbcca2aa4..2616022bc59 100644
  {
 +    flush_foreign_window_images( dce );
      if (!dce->hwnd) return;  /* already released */
- 
+
      set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
 @@ -984,6 +1195,7 @@ BOOL delete_dce( struct dce *dce )
      {
@@ -307,7 +307,7 @@ index eccbcca2aa4..2616022bc59 100644
          if (end_paint || (dce->flags & DCX_CACHE)) delete_clip_rgn( dce );
          if (dce->flags & DCX_CACHE)
 diff --git a/dlls/win32u/driver.c b/dlls/win32u/driver.c
-index 793de3fd27e..a8b8d9acffd 100644
+index 793de3fd..a8b8d9ac 100644
 --- a/dlls/win32u/driver.c
 +++ b/dlls/win32u/driver.c
 @@ -412,7 +412,7 @@ static DWORD nulldrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
@@ -317,10 +317,10 @@ index 793de3fd27e..a8b8d9acffd 100644
 -    return ERROR_SUCCESS;
 +    return put_foreign_window_image( get_nulldrv_dc(dev), clip, info, bits, src, dst, rop );
  }
- 
+
  static UINT nulldrv_RealizeDefaultPalette( PHYSDEV dev )
 diff --git a/dlls/win32u/message.c b/dlls/win32u/message.c
-index 138b5531b6c..4b49daf3bff 100644
+index 138b5531..4b49daf3 100644
 --- a/dlls/win32u/message.c
 +++ b/dlls/win32u/message.c
 @@ -2277,6 +2277,9 @@ static LRESULT handle_internal_message( HWND hwnd, UINT msg, WPARAM wparam, LPAR
@@ -334,13 +334,13 @@ index 138b5531b6c..4b49daf3bff 100644
      {
          RECT client;
 diff --git a/dlls/win32u/ntgdi_private.h b/dlls/win32u/ntgdi_private.h
-index 72b36ec7e93..04b5fe9fe9d 100644
+index 72b36ec7..04b5fe9f 100644
 --- a/dlls/win32u/ntgdi_private.h
 +++ b/dlls/win32u/ntgdi_private.h
 @@ -163,6 +163,10 @@ extern HBRUSH create_brush( const LOGBRUSH *brush );
  extern BOOL store_brush_pattern( LOGBRUSH *brush, struct brush_pattern *pattern );
  extern void free_brush_pattern( struct brush_pattern *pattern );
- 
+
 +extern DWORD put_foreign_window_image( DC *dc, HRGN clip, BITMAPINFO *info,
 +                                        const struct gdi_image_bits *bits, struct bitblt_coords *src,
 +                                        struct bitblt_coords *dst, DWORD rop );
@@ -349,18 +349,18 @@ index 72b36ec7e93..04b5fe9fe9d 100644
  extern BOOL clip_device_rect( DC *dc, RECT *dst, const RECT *src );
  extern BOOL clip_visrect( DC *dc, RECT *dst, const RECT *src );
 diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
-index e02e484900e..4cac1f05c0f 100644
+index e02e4849..4cac1f05 100644
 --- a/dlls/win32u/ntuser_private.h
 +++ b/dlls/win32u/ntuser_private.h
 @@ -255,4 +255,6 @@ WND *get_win_ptr( HWND hwnd );
  BOOL is_child( HWND parent, HWND child );
  BOOL is_window( HWND hwnd );
- 
+
 +extern void receive_foreign_window_image( HWND toplevel, HWND hwnd, void *mapping );
 +
  #endif /* __WINE_NTUSER_PRIVATE_H */
 diff --git a/include/ntuser.h b/include/ntuser.h
-index 5f0a0b04fe9..011041b2327 100644
+index 5f0a0b04..011041b2 100644
 --- a/include/ntuser.h
 +++ b/include/ntuser.h
 @@ -655,6 +655,7 @@ enum wine_internal_message

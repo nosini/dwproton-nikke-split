@@ -8,13 +8,17 @@ import re
 
 
 PATCHED_USER32 = {
-    "baa3a226e5e40b2ffb2f19415ff40f7c2c754934442078327356a5cd55aefeed",
-    "b2bba839e4a7cafc5de0e9f03e5aeed7fd75ba8566eedb37d8c671d6a8559709",
+    "3ce4e0e70c6d012e825b654ca41be70e7f5adf1b93b9f2ef35980e4925717c94",
+    "eb0d1f7d2cd17bf719d6cfa891e6344790cab78ac031c13765b7da8bc92bdade",
 }
-PATCHED_WIN32U = {"8fb4d65b534d3fcba58aad4fa15039d2c68abda3357f51be9958b9efc10fb531"}
-PATCHED_WINEWAYLAND = {"13faede5b4653b242cebb55061f93aa17e2230052b0068bd1d912889931a6763"}
+PATCHED_WIN32U = {"b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78"}
+PATCHED_WINEWAYLAND = {"b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f"}
 # Older builds, to tell a runner that was not switched from a wrong module.
 OLDER_BUILDS = {
+    "13faede5b4653b242cebb55061f93aa17e2230052b0068bd1d912889931a6763": "11.0-15 revision 7",
+    "8fb4d65b534d3fcba58aad4fa15039d2c68abda3357f51be9958b9efc10fb531": "11.0-15 revision 7",
+    "baa3a226e5e40b2ffb2f19415ff40f7c2c754934442078327356a5cd55aefeed": "11.0-15 revision 7",
+    "b2bba839e4a7cafc5de0e9f03e5aeed7fd75ba8566eedb37d8c671d6a8559709": "11.0-15 revision 7",
     "86a2af537ca16025850745bdd1eb440e834ce5421b3f71d75e3d7f8653cf7561": "11.0-14 revision 6",
     "cb18c05f2d76eb734d4ca24a29da5cff109d1726ad717188a1a8086286b8ce31": "11.0-14 revision 6",
     "1a63c3754c5ff26de5984af229a5e8a5fd1ee160342ff3950adb47487e8c7310": "11.0-14 revision 6",
