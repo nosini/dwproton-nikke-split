@@ -2,7 +2,7 @@
 
 ## Patch series
 
-`upstream/` holds the fix as four Wine commits. They apply with `git am`
+`upstream/` holds the fix as five Wine commits. They apply with `git am`
 to wine-dwproton commit `dda80c1bc56000053a773cf6f8585331d1bd68f7`, the
 Wine source of the published `dwproton-11.0-16` release:
 
@@ -29,8 +29,24 @@ Wine source of the published `dwproton-11.0-16` release:
    they become ungrabbed `xdg_popup`s. If the window beside an unowned
    popup belongs to another process, the foreground window is used as its
    parent.
+5. **winewayland.drv: Don't set an app_id on saved activation tokens.**
+   The driver commits a new `xdg_activation_token_v1` on every key press,
+   pointer button and keyboard focus change and saves it for a later
+   window activation. Mutter turns each committed token into a startup
+   sequence and shows the busy cursor while a sequence that has an
+   application ID is pending (`meta_startup_notification_has_pending_sequences`
+   in Mutter 51.1), up to its 15-second timeout. The saved tokens are
+   rarely used, so the cursor kept spinning. They now keep their surface
+   and input serial, which Mutter's `token_can_activate` checks, but no
+   longer set an app_id. Tokens created by `wayland_surface_activate` and
+   used at once still set it.
 
-`upstream/` also holds the drafts for offering the series to DWProton.
+`upstream/` also holds the drafts for offering patches 1–4 to DWProton.
+Patch 5 is not part of that offer. The token code comes from the Wayland
+driver DWProton shares with Proton-CachyOS and Proton-EM, where an
+equivalent change was declined
+([CachyOS/wine-cachyos#39](https://github.com/CachyOS/wine-cachyos/pull/39))
+in favour of reworking activation or changing Mutter.
 
 ## Changes already present in 11.0-16
 
@@ -44,7 +60,9 @@ nested popups recursively.
 The release still discards the foreign-window software copies targeted by
 patch 2, still forces `INTLWebViewHelper.exe` to X11, and still treats the
 store's thick-frame non-activating dropdown as managed. Patches 2–4 remain
-necessary and retain their behavior.
+necessary and retain their behavior. It also refreshes the saved
+activation token with an app_id on every input event; patch 5 addresses
+that.
 
 ## Rebuilding the modules
 
@@ -114,6 +132,12 @@ and run each `.exe` with `proton run` from the runner being tested, with
   press, exiting with status 9, 11 or 10 if missing; `--reopen` hides and
   shows the popup again. Without `--local`, a helper process creates the
   child and the popup, which is not handled.
+
+The busy cursor of patch 5 needs no probe. Run any Wine program, such as
+`notepad`, with `WINE_GRAPHICS_DRIVER=wayland` and `WAYLAND_DEBUG=client`,
+then click and type in its window. Without the patch, every button and
+key event is followed by `xdg_activation_token_v1.set_app_id` and
+`commit`; with it, the tokens are committed without `set_app_id`.
 
 ## Validation
 

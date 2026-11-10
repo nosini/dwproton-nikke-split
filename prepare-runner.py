@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 
-TOOL = "DWProton-11.0-16-nikke-split-r8"
+TOOL = "DWProton-11.0-16-nikke-split-r9"
 ORIGINALS = {
     "files/lib/wine/x86_64-unix/win32u.so":
         "d1350fb713b468d75767dce23e4748a171c73e27efa189afbf233abe9816b572",

@@ -1,0 +1,78 @@
+From 87b31eac6538aa6e4b418c9459520d23edca17f6 Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Tue, 10 Nov 2026 18:04:15 +0100
+Subject: [PATCH] winewayland.drv: Don't set an app_id on saved activation
+ tokens.
+
+Every key press, button press and keyboard focus change commits a new
+activation token and saves it for a later window activation. These
+tokens carry the process name as their app_id. Mutter starts a startup
+sequence for each committed token and shows a busy cursor for those with
+an app_id until the token is used or a timeout expires. Saved tokens are
+usually never used and each input event replaces the last one, so GNOME
+keeps showing the busy cursor while the game runs and for a while after
+it exits.
+
+Only set the app_id on tokens that are activated right away. A saved
+token keeps its input serial, which the compositor uses to decide
+whether the activation is allowed; the app_id is optional.
+---
+ dlls/winewayland.drv/wayland_surface.c | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
+index 18fc1bf..93dcabb 100644
+--- a/dlls/winewayland.drv/wayland_surface.c
++++ b/dlls/winewayland.drv/wayland_surface.c
+@@ -2060,7 +2060,7 @@ const static struct xdg_activation_token_v1_listener save_token_listener = {
+ 
+ static struct xdg_activation_token_v1 *wayland_surface_create_token(
+                                         struct wayland_surface *surface,
+-                                        BOOL activate)
++                                        BOOL activate, BOOL with_app_id)
+ {
+     struct wayland_seat *seat = &process_wayland.seat;
+     struct xdg_activation_token_v1 *token;
+@@ -2076,7 +2076,7 @@ static struct xdg_activation_token_v1 *wayland_surface_create_token(
+     }
+ 
+     xdg_activation_token_v1_set_surface(token, surface->wl_surface);
+-    if (process_name && activate) xdg_activation_token_v1_set_app_id(token, process_name);
++    if (process_name && with_app_id) xdg_activation_token_v1_set_app_id(token, process_name);
+ 
+     pthread_mutex_lock(&seat->mutex);
+     if (activate && seat->wl_seat) xdg_activation_token_v1_set_serial(token, serial, seat->wl_seat);
+@@ -2092,7 +2092,7 @@ void wayland_surface_flash_window(struct wayland_surface *surface)
+     if (!process_wayland.xdg_activation_v1) return;
+     if (!wayland_surface_is_toplevel(surface)) return;
+ 
+-    if (!(token = wayland_surface_create_token(surface, FALSE))) return;
++    if (!(token = wayland_surface_create_token(surface, FALSE, FALSE))) return;
+     xdg_activation_token_v1_add_listener(token, &activate_listener, surface->hwnd);
+     xdg_activation_token_v1_commit(token);
+ }
+@@ -2108,7 +2108,11 @@ void wayland_refresh_activation_token(HWND hwnd)
+     if (!(surface = data->wayland_surface) || !wayland_surface_is_toplevel(surface))
+         goto done;
+ 
+-    if (!(token = wayland_surface_create_token(surface, TRUE))) goto done;
++    /* Committing a token with an app_id starts a startup sequence, and GNOME
++     * shows a busy cursor until the token is used or times out. A token kept
++     * for a later activation is usually never used, and a new one is created
++     * for every input event, so the cursor would never stop spinning. */
++    if (!(token = wayland_surface_create_token(surface, TRUE, FALSE))) goto done;
+     xdg_activation_token_v1_add_listener(token, &save_token_listener, NULL);
+     xdg_activation_token_v1_commit(token);
+ 
+@@ -2133,7 +2137,7 @@ void wayland_surface_activate(struct wayland_surface *surface)
+     }
+     else
+     {
+-        token = wayland_surface_create_token(surface, TRUE);
++        token = wayland_surface_create_token(surface, TRUE, TRUE);
+         xdg_activation_token_v1_add_listener(token, &activate_listener, surface->hwnd);
+         xdg_activation_token_v1_commit(token);
+     }
+-- 
+2.56.0
+

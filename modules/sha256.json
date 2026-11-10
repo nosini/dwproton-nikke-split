@@ -1,6 +1,6 @@
 {
   "files/lib/wine/i386-windows/user32.dll": "eb0d1f7d2cd17bf719d6cfa891e6344790cab78ac031c13765b7da8bc92bdade",
   "files/lib/wine/x86_64-unix/win32u.so": "b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78",
-  "files/lib/wine/x86_64-unix/winewayland.so": "b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f",
+  "files/lib/wine/x86_64-unix/winewayland.so": "7e094785085a5d04b58eea7c8c0a9d3c961693709dc52b7f4e0edac0b1b7a319",
   "files/lib/wine/x86_64-windows/user32.dll": "3ce4e0e70c6d012e825b654ca41be70e7f5adf1b93b9f2ef35980e4925717c94"
 }

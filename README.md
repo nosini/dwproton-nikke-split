@@ -5,7 +5,8 @@ Wayland and its launcher on gamescope's private X11. With it, NIKKE's
 in-game store renders, and closing the store no longer ends the game. The
 store's dropdown lists, such as the billing city, stay open and can be used
 with the mouse, the scrollbar and the keyboard. The mouse wheel does not
-scroll them yet.
+scroll them yet. On GNOME, the busy cursor no longer keeps spinning over
+the game after clicks and key presses.
 
 No game files or registry overrides are involved. The fix replaces four
 Wine modules in a separate copy of the runner; the original runner stays
@@ -22,7 +23,7 @@ python3 prepare-runner.py
 
 The script finds an unmodified DWProton 11.0-16 installation, checks its
 four original modules against the published build, and makes a separate
-`DWProton-11.0-16-nikke-split-r8` runner in
+`DWProton-11.0-16-nikke-split-r9` runner in
 `~/.local/share/Steam/compatibilitytools.d`. The original runner and earlier experimental
 runners are left alone. An installation elsewhere can be supplied as the
 first argument, and `--destination` chooses where the new runner goes.
@@ -32,7 +33,7 @@ newer and the normal Wine Wayland libraries.
 
 ## Use
 
-In NIKKE's sandbox settings, select `DWProton-11.0-16-nikke-split-r8`,
+In NIKKE's sandbox settings, select `DWProton-11.0-16-nikke-split-r9`,
 keep **Native Wayland + private X11 (split)**, and clear **X11
 executable**. An explicit `INTLWebViewHelper.exe` override would force the
 incompatible path back on. Launch the game and open, close and reopen the
@@ -77,6 +78,12 @@ URLs. Loaded modules alone do not prove which rendering API is active.
   and the store closes the dropdown at once. Such windows now become
   popups of the window beside them and leave the keyboard focus where it
   is.
+- On every click, key press and focus change, Wine asks the compositor
+  for an activation token and keeps it in case a window is activated
+  later. Each token named the game, so GNOME treated it as an
+  application starting and showed the busy cursor until the token was
+  used, which mostly never happened. The kept tokens no longer name the
+  game; tokens used right away still do.
 
 The launcher fallback to X11 stays enabled for `nikke_launcher.exe` and
 `tbs_browser.exe`. The changes apply to every game started with this

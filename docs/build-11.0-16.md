@@ -69,3 +69,40 @@ Wheel delivery in the probe does not prove that NIKKE's dropdown scrolls.
 The known bitmap forwarding limits remain: only the supported 32-bit
 `SRCCOPY` path is forwarded, updates flush on `ReleaseDC`, and a mapped
 view can leak if its recipient window dies before handling the message.
+
+## Revision 9: busy cursor on GNOME
+
+Built and checked on 2026-11-10 as `DWProton-11.0-16-nikke-split-r9`. It
+adds patch 5, which stops saved activation tokens from setting an app_id.
+The five patches applied to the release Wine commit give tree
+`acc086a3fa23326a06dfd8907b0f94bd43d888b4`; patches 1–4 alone still give
+the r8 tree above.
+
+Only `winewayland.so` is replaced. Patch 5 does not touch `win32u.so` or
+`user32.dll`, so r9 keeps the validated r8 builds of those modules. A
+rebuild with `build-modules.sh` produces equivalent but not byte-identical
+files for them. The new `winewayland.so` requires glibc 2.38 or newer and
+has the same library dependencies as before.
+
+The checks used Mutter 51.1 in headless mode with RemoteDesktop virtual
+input. They started the runner's `wine` directly in fresh prefixes rather
+than through `proton run`. Notepad was clicked five times and typed in
+five times, giving ten button and ten key events plus one keyboard focus
+event:
+
+| Runner | Tokens committed | With `set_app_id` | With `set_serial` |
+| --- | --- | --- | --- |
+| Stock 11.0-16 | 21 | 21 | 21 |
+| Split-display r8 | 21 | 21 | 21 |
+| Split-display r9 | 21 | 0 | 21 |
+| r9 made by `prepare-runner.py` | 21 | 0 | 21 |
+
+Mutter 51.1 shows the busy cursor only for pending startup sequences with
+an application ID, and its activation check uses the token's surface and
+serial, not its app_id. On 2026-11-10, the user confirmed that r9 fixes
+the busy cursor on their GNOME desktop.
+
+On r9, the nested popup probe exited 0, three runs of 300 popup race
+iterations exited 0, and the dropdown probe kept focus, received the
+click, wheel and key, and survived reopening (all exit 0). r8 gave the
+same results for the popup and dropdown input checks.

@@ -12,9 +12,10 @@ PATCHED_USER32 = {
     "eb0d1f7d2cd17bf719d6cfa891e6344790cab78ac031c13765b7da8bc92bdade",
 }
 PATCHED_WIN32U = {"b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78"}
-PATCHED_WINEWAYLAND = {"b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f"}
+PATCHED_WINEWAYLAND = {"7e094785085a5d04b58eea7c8c0a9d3c961693709dc52b7f4e0edac0b1b7a319"}
 # Older builds, to tell a runner that was not switched from a wrong module.
 OLDER_BUILDS = {
+    "b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f": "11.0-16 revision 8",
     "13faede5b4653b242cebb55061f93aa17e2230052b0068bd1d912889931a6763": "11.0-15 revision 7",
     "8fb4d65b534d3fcba58aad4fa15039d2c68abda3357f51be9958b9efc10fb531": "11.0-15 revision 7",
     "baa3a226e5e40b2ffb2f19415ff40f7c2c754934442078327356a5cd55aefeed": "11.0-15 revision 7",
