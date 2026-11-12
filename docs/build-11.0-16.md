@@ -106,3 +106,43 @@ On r9, the nested popup probe exited 0, three runs of 300 popup race
 iterations exited 0, and the dropdown probe kept focus, received the
 click, wheel and key, and survived reopening (all exit 0). r8 gave the
 same results for the popup and dropdown input checks.
+
+## Revision 10: Vulkan launchers on X servers without DRI3
+
+Built and checked on 2026-11-12 as `DWProton-11.0-16-nikke-split-r10`. It
+adds patch 6, which selects Mesa's software Vulkan WSI in X11 processes
+when the X server has no DRI3. The six patches applied to the release
+Wine commit give tree `17f0d5db683a01c579aba8ed162c994cc62f1415`;
+patches 1–5 alone still give the r9 tree above.
+
+Only `winex11.so` is added. Patch 6 does not touch the other four
+modules, so r10 keeps the r9 builds of them. `build-modules.sh` now
+configures with `--with-x` and builds `winex11.so` as well. The new
+module needs glibc 2.38 or newer, links the same libraries as the
+published one, and loads the same eleven X11, OpenGL and Vulkan sonames.
+`prepare-runner.py` checks the published `winex11.so` as a fifth original.
+
+The checks ran on the agent VM, which has no 3D GPU, with Mesa 26.2.5's
+Venus driver talking to `virgl_test_server --venus --no-virgl` over vtest,
+backed by lavapipe. The runner's `wine` was started directly in fresh
+prefixes on the X11 driver, running `vulkan-probe.exe`:
+
+| X server | Runner | Result |
+| --- | --- | --- |
+| Xvfb 21.1.25 (no DRI3) | Stock 11.0-16 | `no-presentation-support`, exit 3 |
+| Xvfb 21.1.25 (no DRI3) | r10 made by `prepare-runner.py` | 60 frames presented, exit 0; all 76,800 window pixels red in Xvfb's framebuffer |
+| Xvfb, `MESA_VK_WSI_DEBUG=linear` set | r10 | `no-presentation-support`, exit 3; the variable was left alone |
+| Xwayland 24.1.14 under headless Weston 16 (no glamor, so no DRI3) | Stock 11.0-16 | `no-presentation-support`, exit 3 |
+| Same | r10 | 60 frames presented, exit 0 |
+
+With `WINEDEBUG=+vulkan`, r10 logged the selection once in each X11
+process (the probe and `explorer.exe`). Native `vkcube --wsi xcb` on the
+same Xvfb crashed after Mesa's "No DRI3 support detected" message and
+ran with `MESA_VK_WSI_DEBUG=sw`, matching the white launcher seen with
+run-in-sandbox's `--virtual-gpu`.
+
+On 2026-11-12, the user confirmed that NIKKE's launcher works with r10
+under run-in-sandbox's `--virtual-gpu` in split display, with no
+`MESA_VK_WSI_DEBUG` set by hand. Not checked: an X server with DRI3,
+where the patch returns without setting anything (the VM has no GPU
+that gives Xwayland glamor).

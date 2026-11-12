@@ -18,7 +18,7 @@ imports = {
     "kernel32": ["GetModuleHandleA", "Sleep", "ExitProcess", "GetStdHandle", "WriteFile",
                  "GetCommandLineA", "GetModuleFileNameA", "CreateProcessA", "WaitForSingleObject",
                  "GetExitCodeProcess", "CreateFileMappingA", "MapViewOfFile", "VirtualQuery",
-                 "CreateThread", "CreateEventA", "SetEvent", "CloseHandle"],
+                 "CreateThread", "CreateEventA", "SetEvent", "CloseHandle", "LoadLibraryA", "GetProcAddress"],
     "user32": ["RegisterClassA", "CreateWindowExA", "ShowWindow", "DestroyWindow", "UpdateWindow",
                "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect",
                "SetFocus", "GetFocus", "GetWindowRect", "GetWindow", "BeginPaint", "EndPaint",
@@ -34,7 +34,8 @@ for name, exports in imports.items():
     subprocess.run(["llvm-dlltool", "-m", "i386:x86-64", "-d", str(definition),
                     "-l", str(library)], check=True)
     libraries.append(str(library))
-for name in ("window-probe", "popup-race-probe", "render-probe", "dropdown-probe", "forged-probe"):
+for name in ("window-probe", "popup-race-probe", "render-probe", "dropdown-probe", "forged-probe",
+             "vulkan-probe"):
     # A separate console window can steal focus before the dropdown check starts.
     subsystem = "windows" if name == "dropdown-probe" else "console"
     subprocess.run(["clang", "--target=x86_64-pc-windows-msvc", "-D__WINE_PE_BUILD",

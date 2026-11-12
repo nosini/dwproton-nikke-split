@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the four replacement modules from the Wine source of the published
+# Build the five replacement modules from the Wine source of the published
 # DWProton 11.0-16 runner with the patch series in upstream/ applied, then
 # replace modules/ and its checksum manifest with them.
 set -euo pipefail
@@ -8,6 +8,7 @@ base=dda80c1bc56000053a773cf6f8585331d1bd68f7
 source_url=https://dawn.wine/dawn-winery/wine-dwproton.git
 modules=(
     dlls/winewayland.drv/winewayland.so
+    dlls/winex11.drv/winex11.so
     dlls/win32u/win32u.so
     dlls/user32/x86_64-windows/user32.dll
     dlls/user32/i386-windows/user32.dll
@@ -41,7 +42,7 @@ done
 (cd "$work/wine-source" && ./autogen.sh)
 mkdir "$work/wine-build"
 cd "$work/wine-build"
-../wine-source/configure --enable-archs=i386,x86_64 --without-x --with-wayland --disable-tests
+../wine-source/configure --enable-archs=i386,x86_64 --with-x --with-wayland --disable-tests
 make -j"$jobs" "${modules[@]}"
 
 for module in "${modules[@]}"; do

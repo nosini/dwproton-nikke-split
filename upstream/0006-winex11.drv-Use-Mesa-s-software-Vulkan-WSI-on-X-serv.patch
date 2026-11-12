@@ -1,0 +1,74 @@
+From 77b3805fb5a86b4c5f89bb1f18c3ca24def3cc35 Mon Sep 17 00:00:00 2001
+From: Nosini <git@nosini.eu>
+Date: Fri, 13 Nov 2026 00:27:41 +0100
+Subject: [PATCH] winex11.drv: Use Mesa's software Vulkan WSI on X servers
+ without DRI3.
+
+Mesa's X11 WSI hands a GPU driver's swapchain images to the X server
+through DRI3. Without DRI3 the driver reports no presentation support,
+and a program that creates a swapchain anyway leaves its window
+unpainted. Sandboxes run Xwayland without glamor, and so without DRI3,
+when they give their programs a GPU only through a render server such as
+Mesa's Venus: with glamor, Xwayland's DRI3Open passes every client a
+render node. A browser-based launcher there comes up white and repaints
+only the parts it damages.
+
+Mesa's software WSI, selected with MESA_VK_WSI_DEBUG=sw, presents with
+plain image uploads and needs no DRI3. Setting it for the whole sandbox
+also takes the Wayland processes beside the launcher off GPU buffers, so
+select it here instead: only in processes that use the X11 driver, only
+when the X server lacks DRI3, and not when the variable is already set.
+The X11 driver's Vulkan setup runs before the first host instance is
+created, and Mesa reads the variable when it enumerates physical
+devices.
+---
+ dlls/winex11.drv/vulkan.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/dlls/winex11.drv/vulkan.c b/dlls/winex11.drv/vulkan.c
+index ad5f0dd..57257b3 100644
+--- a/dlls/winex11.drv/vulkan.c
++++ b/dlls/winex11.drv/vulkan.c
+@@ -28,6 +28,7 @@
+ 
+ #include <stdarg.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <dlfcn.h>
+ 
+ #include "ntstatus.h"
+@@ -110,6 +111,23 @@ static const struct vulkan_driver_funcs x11drv_vulkan_driver_funcs =
+     .p_map_device_extensions = X11DRV_map_device_extensions,
+ };
+ 
++/* Mesa's X11 WSI presents a GPU driver's images by handing them to the X
++ * server through DRI3. An X server without DRI3, such as an Xwayland run
++ * without glamor so that it cannot pass its clients a render node, leaves
++ * such a driver reporting no presentation support at all, while Mesa's
++ * software WSI still works there. The driver reads the choice when it
++ * enumerates physical devices, after this runs, and only this process uses
++ * the X11 driver; Wayland processes keep presenting GPU buffers. */
++static void select_wsi_without_dri3(void)
++{
++    int opcode, event, error;
++
++    if (getenv( "MESA_VK_WSI_DEBUG" )) return;
++    if (XQueryExtension( gdi_display, "DRI3", &opcode, &event, &error )) return;
++    TRACE( "no DRI3, selecting Mesa's software WSI\n" );
++    setenv( "MESA_VK_WSI_DEBUG", "sw", 0 );
++}
++
+ UINT X11DRV_VulkanInit( UINT version, void *vulkan_handle, const struct vulkan_driver_funcs **driver_funcs )
+ {
+     if (version != WINE_VULKAN_DRIVER_VERSION)
+@@ -118,6 +136,7 @@ UINT X11DRV_VulkanInit( UINT version, void *vulkan_handle, const struct vulkan_d
+         return STATUS_INVALID_PARAMETER;
+     }
+ 
++    select_wsi_without_dri3();
+     *driver_funcs = &x11drv_vulkan_driver_funcs;
+     return STATUS_SUCCESS;
+ }
+-- 
+2.56.0
+

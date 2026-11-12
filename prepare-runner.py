@@ -11,12 +11,14 @@ import subprocess
 import tempfile
 
 
-TOOL = "DWProton-11.0-16-nikke-split-r9"
+TOOL = "DWProton-11.0-16-nikke-split-r10"
 ORIGINALS = {
     "files/lib/wine/x86_64-unix/win32u.so":
         "d1350fb713b468d75767dce23e4748a171c73e27efa189afbf233abe9816b572",
     "files/lib/wine/x86_64-unix/winewayland.so":
         "4571eea2a4b52046d297f42990e5bbc8ae73c0d32d18cc46bbe8117cf6bede45",
+    "files/lib/wine/x86_64-unix/winex11.so":
+        "c3fc494983418a617111afa6037fad31b570f30f5cbde9a7beeea66e14d09ca1",
     "files/lib/wine/x86_64-windows/user32.dll":
         "d7a66e75545f2f44a77e20f578e7e09f4bab46b02a4530cfed8008412b60a253",
     "files/lib/wine/i386-windows/user32.dll":

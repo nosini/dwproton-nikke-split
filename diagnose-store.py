@@ -13,6 +13,7 @@ PATCHED_USER32 = {
 }
 PATCHED_WIN32U = {"b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78"}
 PATCHED_WINEWAYLAND = {"7e094785085a5d04b58eea7c8c0a9d3c961693709dc52b7f4e0edac0b1b7a319"}
+PATCHED_WINEX11 = {"ce4de99241abe83e1f22d9773308b762042a411e425d8f1644fef85d46174d4d"}
 # Older builds, to tell a runner that was not switched from a wrong module.
 OLDER_BUILDS = {
     "b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f": "11.0-16 revision 8",
@@ -30,7 +31,7 @@ OLDER_BUILDS = {
     "49cfc37c56ba1e9c089223f3dfdd95b0bbd786f6208ac6ff6d41cf2374265b93": "revision 5",
 }
 PATCHED = {"user32.dll": PATCHED_USER32, "win32u.so": PATCHED_WIN32U,
-           "winewayland.so": PATCHED_WINEWAYLAND}
+           "winewayland.so": PATCHED_WINEWAYLAND, "winex11.so": PATCHED_WINEX11}
 MODULE = re.compile(
     r"(?:winewayland|winex11|opengl32|winevulkan|vulkan-1|d3d\d+|dxgi|"
     r"libcef|libegl|libglesv2|libvulkan|vk_swiftshader)\.(?:dll|so)(?:\..*)?$",
@@ -98,6 +99,7 @@ for proc in sorted(Path("/proc").glob("[0-9]*"), key=lambda p: int(p.name)):
     record["user32_on_disk"] = disk_modules["user32.dll"]
     record["win32u_on_disk"] = disk_modules["win32u.so"]
     record["winewayland_on_disk"] = disk_modules["winewayland.so"]
+    record["winex11_on_disk"] = disk_modules["winex11.so"]
     records.append(record)
 
 print(json.dumps({

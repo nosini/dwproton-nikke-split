@@ -2,7 +2,7 @@
 
 ## Patch series
 
-`upstream/` holds the fix as five Wine commits. They apply with `git am`
+`upstream/` holds the fix as six Wine commits. They apply with `git am`
 to wine-dwproton commit `dda80c1bc56000053a773cf6f8585331d1bd68f7`, the
 Wine source of the published `dwproton-11.0-16` release:
 
@@ -41,8 +41,24 @@ Wine source of the published `dwproton-11.0-16` release:
    longer set an app_id. Tokens created by `wayland_surface_activate` and
    used at once still set it.
 
+6. **winex11.drv: Use Mesa's software Vulkan WSI on X servers without
+   DRI3.** Mesa's X11 WSI hands a GPU driver's images to the X server
+   through DRI3; without it, `vkGetPhysicalDeviceSurfaceSupportKHR`
+   reports no support, and a program that creates a swapchain anyway
+   leaves its window unpainted. run-in-sandbox's virtualized GPU runs its
+   private Xwayland without glamor, so without DRI3, because with glamor
+   `DRI3Open` passes every client a render node. The driver's Vulkan
+   setup now sets `MESA_VK_WSI_DEBUG=sw` when the X server lacks DRI3 and
+   the variable is unset. win32u calls it lazily from `vulkan_init_once`,
+   after enumerating instance extensions and before any host instance
+   exists. Mesa parses the variable in `wsi_device_init`, during
+   physical-device enumeration. Only processes on the X11 driver are
+   affected, so the Wayland game keeps dma-buf presentation. Without
+   DRI3, Mesa does not probe MIT-SHM either, so presentation uses
+   `xcb_put_image` over the X socket.
+
 `upstream/` also holds the drafts for offering patches 1–4 to DWProton.
-Patch 5 is not part of that offer. The token code comes from the Wayland
+Patches 5 and 6 are not part of that offer. The token code comes from the Wayland
 driver DWProton shares with Proton-CachyOS and Proton-EM, where an
 equivalent change was declined
 ([CachyOS/wine-cachyos#39](https://github.com/CachyOS/wine-cachyos/pull/39))
@@ -68,7 +84,12 @@ that.
 
 The build needs a Wine development environment: GCC, Clang and LLD,
 Autoconf, Bison, Flex, and the Wayland, EGL, xkbcommon and xkbregistry
-development files. From this checkout:
+development files, and for `winex11.so` the X11 ones: libX11, libXext,
+libXcomposite, libXcursor, libXfixes, libXi, libXinerama, libXrandr,
+libXrender, libXxf86vm, and OpenGL. configure records the sonames found
+for the libraries the driver loads at run time, so a missing one is
+silently left out; compare `strings winex11.so` with the published
+module. From this checkout:
 
 ```sh
 ./build-modules.sh /path/to/new/work/directory
@@ -78,11 +99,11 @@ The script fetches the release's Wine commit, checks it, applies the
 series, configures with
 
 ```sh
---enable-archs=i386,x86_64 --without-x --with-wayland --disable-tests
+--enable-archs=i386,x86_64 --with-x --with-wayland --disable-tests
 ```
 
-and builds only the 64-bit Unix `winewayland.so` and `win32u.so` and the
-32-bit and 64-bit `user32.dll`. It then replaces the files under
+and builds only the 64-bit Unix `winewayland.so`, `winex11.so` and
+`win32u.so` and the 32-bit and 64-bit `user32.dll`. It then replaces the files under
 `modules/` and regenerates `modules/sha256.json`. A second argument sets
 the number of parallel jobs. The rest of the runner stays the published
 DWProton build, which is why `prepare-runner.py` checks the release's
@@ -132,6 +153,16 @@ and run each `.exe` with `proton run` from the runner being tested, with
   press, exiting with status 9, 11 or 10 if missing; `--reopen` hides and
   shows the popup again. Without `--local`, a helper process creates the
   child and the popup, which is not handled.
+
+- `vulkan-probe.exe` presents 60 red frames through a Win32 Vulkan
+  swapchain in a 320×240 window at the top left. Run it on the X11 driver
+  (no `WAYLAND_DISPLAY`) on an X server without DRI3, such as Xvfb or an
+  Xwayland without glamor, with a Vulkan driver that is not a CPU one:
+  Mesa's Venus over `virgl_test_server --venus` works without a GPU. It
+  exits with status zero after `presented`, and with status 3 and
+  `no-presentation-support` when the driver cannot present there. With
+  `WINEDEBUG=+vulkan`, patch 6 logs `no DRI3, selecting Mesa's software
+  WSI` once per X11 process.
 
 The busy cursor of patch 5 needs no probe. Run any Wine program, such as
 `notepad`, with `WINE_GRAPHICS_DRIVER=wayland` and `WAYLAND_DEBUG=client`,
