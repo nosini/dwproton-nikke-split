@@ -149,9 +149,10 @@ that gives Xwayland glamor).
 
 ## Revision 11: review fixes
 
-Built and checked on 2026-11-13 as `DWProton-11.0-16-nikke-split-r11`. A
-code review of r10 found several real defects in patches 1, 2 and 4,
-fixed here:
+Built and checked on 2026-11-13 as `DWProton-11.0-16-nikke-split-r11`.
+On 2026-11-13, the user confirmed that NIKKE works with r11 as it did
+with r10. A code review of r10 found several real defects in patches 1,
+2 and 4, fixed here:
 
 - Patch 1: a destroyed window was removed from the window tree before its
   popup role was torn down. A thread hiding its owner in that gap could
