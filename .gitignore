@@ -3,3 +3,6 @@ __pycache__/
 
 # Source-branch build artifacts, separate from the published-runner modules.
 /builds/
+
+# Local review notes, not part of the project.
+/deferred-review-items.md

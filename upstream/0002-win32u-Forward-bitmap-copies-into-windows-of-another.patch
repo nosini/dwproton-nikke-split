@@ -1,4 +1,4 @@
-From e2a50eb64d7e0cb5b28910297425b3b2a4af9e24 Mon Sep 17 00:00:00 2001
+From 678d7c812b660e14df27e8cc3d64898ea1dd8afc Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 2/4] win32u: Forward bitmap copies into windows of another
@@ -14,8 +14,10 @@ in-game store then stays white.
 Queue clipped 32-bit SRCCOPY images in the DCE and, on ReleaseDC outside
 the GDI lock, copy each one into a section, drop the sender's writable
 view, map the section read-only into the top-level's process and post it
-an internal message. Other raster operations and formats are still
-discarded as before.
+an internal message. Other raster operations, fully clipped copies and
+copies to the desktop window are still discarded and reported as
+successful, as before. A DC that is never released keeps at most 16
+queued copies or 128 MiB, dropping the oldest.
 
 Any process can post that message, so the receiver only accepts the
 address of a whole read-only view that starts with the sender's tag, and
@@ -30,19 +32,19 @@ process's top-level: the pixels stay white before and match after,
 including disjoint clip regions. Posting the message with the address of
 an unrelated mapping no longer unmaps it.
 ---
- dlls/win32u/dce.c            | 216 +++++++++++++++++++++++++++++++++++
+ dlls/win32u/dce.c            | 247 +++++++++++++++++++++++++++++++++++
  dlls/win32u/driver.c         |   2 +-
  dlls/win32u/message.c        |   3 +
  dlls/win32u/ntgdi_private.h  |   4 +
  dlls/win32u/ntuser_private.h |   2 +
  include/ntuser.h             |   1 +
- 6 files changed, 227 insertions(+), 1 deletion(-)
+ 6 files changed, 258 insertions(+), 1 deletion(-)
 
 diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
-index eccbcca2..2616022b 100644
+index eccbcca2..659712b6 100644
 --- a/dlls/win32u/dce.c
 +++ b/dlls/win32u/dce.c
-@@ -40,12 +40,214 @@ struct dce
+@@ -40,12 +40,244 @@ struct dce
      struct list entry;         /* entry in global DCE list */
      HDC         hdc;
      HWND        hwnd;
@@ -56,6 +58,9 @@ index eccbcca2..2616022b 100644
  };
 
 +#define FOREIGN_IMAGE_MAGIC 0x6d696777  /* "wgim" */
++/* Bound what a DC that is never released can queue. */
++#define FOREIGN_IMAGE_MAX_COUNT 16
++#define FOREIGN_IMAGE_MAX_BYTES (128 * 1024 * 1024)
 +
 +/* A foreign top-level has no local window_surface. Bitmap copies reaching
 + * the null driver must be painted by the top-level's process instead. Keep
@@ -83,10 +88,12 @@ index eccbcca2..2616022b 100644
 +                                struct bitblt_coords *dst, DWORD rop )
 +{
 +    struct dce *dce = dc->dce;
-+    struct foreign_image *image;
-+    SIZE_T size, row_size;
++    struct foreign_image *image, *next;
++    SIZE_T size, row_size, queued_size;
++    UINT queued_count;
 +    DWORD region_size;
 +    HRGN region;
++    RECT box;
 +    BYTE *pixels;
 +    int width, height, y, sy, stride;
 +
@@ -98,10 +105,11 @@ index eccbcca2..2616022b 100644
 +        info->bmiHeader.biBitCount = 32;
 +        info->bmiHeader.biCompression = BI_RGB;
 +        info->bmiHeader.biClrUsed = 0;
++        info->bmiHeader.biSizeImage = get_dib_image_size( info );
 +        return ERROR_BAD_FORMAT;
 +    }
-+    if (!bits) return ERROR_SUCCESS;
-+    if (rop != SRCCOPY) return ERROR_NOT_SUPPORTED;
++    /* Copies that cannot be forwarded are discarded, as by the null driver. */
++    if (!bits || rop != SRCCOPY) return ERROR_SUCCESS;
 +    if (src->width != dst->width || src->height != dst->height)
 +        return ERROR_TRANSFORM_NOT_SUPPORTED;
 +    width = dst->visrect.right - dst->visrect.left;
@@ -112,13 +120,18 @@ index eccbcca2..2616022b 100644
 +        src->visrect.bottom > abs(info->bmiHeader.biHeight) ||
 +        src->visrect.right - src->visrect.left != width ||
 +        src->visrect.bottom - src->visrect.top != height)
-+        return ERROR_INVALID_PARAMETER;
++        return ERROR_SUCCESS;
 +
 +    if (!(region = NtGdiCreateRectRgn( dst->visrect.left, dst->visrect.top,
 +                                      dst->visrect.right, dst->visrect.bottom )))
 +        return ERROR_OUTOFMEMORY;
 +    if (get_dc_region(dc)) NtGdiCombineRgn( region, region, get_dc_region(dc), RGN_AND );
 +    if (clip) NtGdiCombineRgn( region, region, clip, RGN_AND );
++    if (NtGdiGetRgnBox( region, &box ) == NULLREGION)
++    {
++        NtGdiDeleteObjectApp( region );
++        return ERROR_SUCCESS;
++    }
 +    region_size = NtGdiGetRegionData( region, 0, NULL );
 +    row_size = (SIZE_T)width * 4;
 +    if (!region_size || row_size > (SIZE_MAX - sizeof(image->data) - region_size) / height)
@@ -157,6 +170,24 @@ index eccbcca2..2616022b 100644
 +        if (info->bmiHeader.biHeight > 0) sy = info->bmiHeader.biHeight - 1 - sy;
 +        memcpy( pixels + row_size * y,
 +                (const BYTE *)bits->ptr + (SIZE_T)stride * sy + src->visrect.left * 4, row_size );
++    }
++    /* Drop the oldest updates first if the DC is never released. */
++    queued_count = 1;
++    queued_size = image->size;
++    LIST_FOR_EACH_ENTRY( next, &dce->foreign_images, struct foreign_image, entry )
++    {
++        queued_count++;
++        queued_size += next->size;
++    }
++    while ((queued_count > FOREIGN_IMAGE_MAX_COUNT || queued_size > FOREIGN_IMAGE_MAX_BYTES) &&
++           !list_empty( &dce->foreign_images ))
++    {
++        next = LIST_ENTRY( list_head( &dce->foreign_images ), struct foreign_image, entry );
++        WARN( "Dropping queued bitmap for hwnd %p\n", next->hwnd );
++        queued_count--;
++        queued_size -= next->size;
++        list_remove( &next->entry );
++        free( next );
 +    }
 +    list_add_tail( &dce->foreign_images, &image->entry );
 +    return ERROR_SUCCESS;
@@ -208,7 +239,7 @@ index eccbcca2..2616022b 100644
 +    const BITMAPINFOHEADER *header = &image.info.bmiHeader;
 +    RGNDATA *region_data = NULL;
 +    MEMORY_BASIC_INFORMATION info;
-+    SIZE_T size;
++    ULONGLONG size;
 +    HRGN region;
 +    HDC hdc;
 +
@@ -229,7 +260,8 @@ index eccbcca2..2616022b 100644
 +        header->biWidth <= 0 || header->biHeight >= 0 ||
 +        header->biWidth > 0x8000 || -header->biHeight > 0x8000)
 +        goto done;
-+    size = (SIZE_T)header->biWidth * -header->biHeight * 4;
++    /* 64-bit, so that the largest accepted size cannot wrap on 32-bit hosts. */
++    size = (ULONGLONG)header->biWidth * -header->biHeight * 4;
 +    if (size > info.RegionSize - sizeof(image) - image.region_size) goto done;
 +    if (!(region_data = malloc( image.region_size ))) goto done;
 +    memcpy( region_data, shared + 1, image.region_size );
@@ -257,13 +289,14 @@ index eccbcca2..2616022b 100644
  static struct list dce_list = LIST_INIT(dce_list);
 
  #define DCE_CACHE_SIZE 64
-@@ -911,6 +1113,14 @@ static void update_visible_region( struct dce *dce )
+@@ -911,6 +1143,15 @@ static void update_visible_region( struct dce *dce )
          }
      }
 
 +    dce->foreign_toplevel = 0;
 +    dce->foreign_pid = 0;
-+    if (!surface && !user_driver->dc_funcs.pPutImage && !is_current_process_window(top_win))
++    if (!surface && !user_driver->dc_funcs.pPutImage && !is_desktop_window(top_win) &&
++        !is_current_process_window(top_win))
 +    {
 +        dce->foreign_toplevel = top_win;
 +        NtUserGetWindowThread(top_win, &dce->foreign_pid);
@@ -272,7 +305,7 @@ index eccbcca2..2616022b 100644
      if (surface)
      {
          user_driver->pGetDC( dce->hdc, dce->hwnd, top_win, &win_rect, &top_rect, flags );
-@@ -939,6 +1149,7 @@ static void update_visible_region( struct dce *dce )
+@@ -939,6 +1180,7 @@ static void update_visible_region( struct dce *dce )
   */
  static void release_dce( struct dce *dce )
  {
@@ -280,7 +313,7 @@ index eccbcca2..2616022b 100644
      if (!dce->hwnd) return;  /* already released */
 
      set_visible_region( dce->hdc, 0, &dummy_surface.rect, &dummy_surface.rect, &dummy_surface, 0, 0 );
-@@ -984,6 +1195,7 @@ BOOL delete_dce( struct dce *dce )
+@@ -984,6 +1226,7 @@ BOOL delete_dce( struct dce *dce )
      {
          list_remove( &dce->entry );
          if (dce->clip_rgn) NtGdiDeleteObjectApp( dce->clip_rgn );
@@ -288,7 +321,7 @@ index eccbcca2..2616022b 100644
          free( dce );
      }
      user_unlock();
-@@ -1024,6 +1236,9 @@ static struct dce *alloc_dce(void)
+@@ -1024,6 +1267,9 @@ static struct dce *alloc_dce(void)
          free( dce );
          return 0;
      }
@@ -298,7 +331,7 @@ index eccbcca2..2616022b 100644
      dce->hwnd      = 0;
      dce->clip_rgn  = 0;
      dce->flags     = 0;
-@@ -1290,6 +1505,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
+@@ -1290,6 +1536,7 @@ static INT release_dc( HWND hwnd, HDC hdc, BOOL end_paint )
      dce = get_dc_dce( hdc );
      if (dce && dce->count && dce->hwnd)
      {

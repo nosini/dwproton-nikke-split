@@ -7,9 +7,10 @@ closing at once). Four commits, in this order:
    Reuses 11.0-16's popup traversal from the common role-clearing path,
    recursively retiring descendants when hiding windows or handling
    compositor dismissal. Removes our previous popup child lists and the
-   upstream calls at individual surface-destruction sites. Destruction
-   keeps the window data lock held because traversal visits windows on
-   other threads. Stands alone.
+   upstream calls at individual surface-destruction sites. A destroyed
+   window's popups are retired before it leaves the window tree, and its
+   surface is destroyed under the window data lock, because traversal
+   visits windows on other threads. Stands alone.
 2. **win32u: Forward bitmap copies into windows of another process.** For a
    DC whose top-level belongs to another process and that has no window
    surface, clipped 32-bit `SRCCOPY` images are queued and, on `ReleaseDC`,
@@ -18,14 +19,15 @@ closing at once). Four commits, in this order:
    window. Any process can post that message, so the receiver only accepts
    a whole read-only view that starts with the sender's tag, checks copies
    of the header and region rather than the shared memory, and leaves any
-   other mapping alone. Other raster operations and formats are still
-   discarded.
+   other mapping alone. Other raster operations, fully clipped copies and
+   copies to the desktop window are still discarded and reported as
+   successful. A DC that is never released queues at most 16 copies.
 3. **user32: Let INTLWebViewHelper.exe use the Wayland driver.** Depends on
    2; without it, the store would stay white on Wayland.
    `nikke_launcher.exe` and `tbs_browser.exe` keep the X11 fallback.
 4. **winewayland.drv: Keep non-activating tool popups unmanaged.**
    `WS_POPUP` windows with `WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW` (and not
-   `WS_EX_APPWINDOW`) that are not being activated are no longer managed
+   `WS_EX_APPWINDOW` or `WS_CAPTION`) that are not being activated are no longer managed
    because of a thick frame, so they become ungrabbed `xdg_popup`s. For an
    unowned popup whose owner hint (the window beside it) belongs to another
    process, the foreground window is used as the parent instead.
@@ -44,6 +46,7 @@ of it using the patched modules, on headless Mutter and Weston:
 | OpenGL output from the helper, Weston | — | Passes |
 | Chromium-style dropdown, Mutter | Loses focus | Stays open; click, wheel and key delivered |
 | Dropdown hide and reopen, Mutter | — | Passes |
+| Captioned non-activating tool palette, Mutter | Managed | Stays managed |
 
 Weston accepts the unpatched popup teardown, so those cases use Mutter.
 The two-thread case lets a thread exit with a nested popup pair still

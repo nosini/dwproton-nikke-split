@@ -11,11 +11,13 @@ PATCHED_USER32 = {
     "3ce4e0e70c6d012e825b654ca41be70e7f5adf1b93b9f2ef35980e4925717c94",
     "eb0d1f7d2cd17bf719d6cfa891e6344790cab78ac031c13765b7da8bc92bdade",
 }
-PATCHED_WIN32U = {"b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78"}
-PATCHED_WINEWAYLAND = {"7e094785085a5d04b58eea7c8c0a9d3c961693709dc52b7f4e0edac0b1b7a319"}
+PATCHED_WIN32U = {"efde46aabe8fc22bebda8384198ff71f888376516796dad821f3dea4cf14aae3"}
+PATCHED_WINEWAYLAND = {"ac00022e2de930a5e1599084c5268b21ed197232f666e40807aa08f10f376b15"}
 PATCHED_WINEX11 = {"ce4de99241abe83e1f22d9773308b762042a411e425d8f1644fef85d46174d4d"}
 # Older builds, to tell a runner that was not switched from a wrong module.
 OLDER_BUILDS = {
+    "b1a633f4264f7d79e5ea7e23504e8597334add179d7baecb77e46d4014b84c78": "11.0-16 revisions 8 to 10",
+    "7e094785085a5d04b58eea7c8c0a9d3c961693709dc52b7f4e0edac0b1b7a319": "11.0-16 revisions 9 and 10",
     "b81336bac0efd33c6f1eea0d196f54e3f9b00818383c62952da728ee3596053f": "11.0-16 revision 8",
     "13faede5b4653b242cebb55061f93aa17e2230052b0068bd1d912889931a6763": "11.0-15 revision 7",
     "8fb4d65b534d3fcba58aad4fa15039d2c68abda3357f51be9958b9efc10fb531": "11.0-15 revision 7",
@@ -87,8 +89,12 @@ for proc in sorted(Path("/proc").glob("[0-9]*"), key=lambda p: int(p.name)):
             stat = mapped_file.stat()
             key = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
             if key not in hashes:
+                # hashlib.file_digest needs Python 3.11.
+                sha256 = hashlib.sha256()
                 with mapped_file.open("rb") as stream:
-                    hashes[key] = hashlib.file_digest(stream, "sha256").hexdigest()
+                    for chunk in iter(lambda: stream.read(1 << 20), b""):
+                        sha256.update(chunk)
+                hashes[key] = sha256.hexdigest()
             digest = hashes[key]
             entry = {"sha256": digest, "matches_prepared_patch": digest in expected}
             if digest in OLDER_BUILDS:

@@ -146,3 +146,63 @@ under run-in-sandbox's `--virtual-gpu` in split display, with no
 `MESA_VK_WSI_DEBUG` set by hand. Not checked: an X server with DRI3,
 where the patch returns without setting anything (the VM has no GPU
 that gives Xwayland glamor).
+
+## Revision 11: review fixes
+
+Built and checked on 2026-11-13 as `DWProton-11.0-16-nikke-split-r11`. A
+code review of r10 found several real defects in patches 1, 2 and 4,
+fixed here:
+
+- Patch 1: a destroyed window was removed from the window tree before its
+  popup role was torn down. A thread hiding its owner in that gap could
+  destroy the owner's popup first, which Mutter rejects. Its role, with
+  its own popups first, is now cleared while it is still in the tree.
+  Clearing a popup's old role can retire its new owner; the popup then
+  stays unmapped instead of being created without a parent. The tree is
+  only walked for surfaces with an `xdg_surface`.
+- Patch 2: the format reply to the text renderer's query now includes the
+  image size, which the renderer uses to size its buffer. Copies that are
+  not forwarded (other raster operations, out-of-range sources) report
+  success again instead of making `BitBlt` fail. Fully clipped copies and
+  copies to the desktop window are not forwarded. A DC that is never
+  released queues at most 16 copies or 128 MiB. The receiver's size check
+  cannot wrap on 32-bit hosts.
+- Patch 4: windows with a caption, such as floating tool palettes, stay
+  managed.
+- `prepare-runner.py` stops if the release's tool name is missing from
+  `compatibilitytool.vdf`. Both scripts work with Python older than 3.11.
+
+The six patches applied to the release Wine commit give tree
+`0bf0fc8ecb845e220dd04cf7379d2f9c728fb4e5`. Only `win32u.so` and
+`winewayland.so` are replaced; r11 keeps the r10 builds of `user32.dll`
+and `winex11.so`, whose sources did not change. Both new modules need
+glibc 2.38 or newer and link the same libraries as before. The runner
+made by `prepare-runner.py` matches `modules/sha256.json`.
+
+All probes ran through `proton run` with the published runner, r10 and
+r11, in fresh prefixes on headless Mutter 51.1 or Weston:
+
+| Check | Stock 11.0-16 | r10 | r11 |
+| --- | --- | --- | --- |
+| Hide an owner before its nested popup, Mutter | Exit 1 | Exit 0 | Exit 0 |
+| Popup race, 300 iterations, Mutter | 3 of 3 runs exit 1 | 3 of 3 exit 0 | 10 of 10 exit 0 |
+| Software bitmap into a foreign window, Weston | Exit 7 | Exit 7 (`SRCINVERT` copy failed) | Exit 0 |
+| Disjoint bitmap clipping, Weston | Exit 7 | Exit 7 | Exit 0 |
+| Helper-owned child under a foreign top-level, Weston | Exit 7 | Exit 7 | Exit 0 |
+| OpenGL output from helper, Weston | Exit 0 | Exit 0 | Exit 0 |
+| Anti-aliased opaque text into a foreign window, Weston | Exit 0 | Exit 0 | Exit 0 |
+| Forged bitmap messages, Weston | Exit 0 | Exit 0 | Exit 0 |
+| Chromium-style dropdown with click, wheel and key, Mutter | Exit 8 | — | Exit 0 |
+| Dropdown hide and reopen, Mutter | Exit 8 | Exit 0 | Exit 0 |
+| Captioned tool palette stays managed, Mutter | Exit 8 | Exit 0 (made a popup) | Exit 8 (managed) |
+
+The r10 bitmap failures come from the new `SRCINVERT` check in
+`render-probe`: r10 made that `BitBlt` fail, so the helper stopped before
+copying. The first r11 build cleared only a destroyed window's popups
+before removing it from the tree, and failed 2 of 3 race runs; the
+released r11 clears the window's own role as well. The text probe does
+not crash r10 either, so it only shows that r11 handles that path, not
+that it reproduces the old buffer overrun. The dropdown input check for
+r10 used wrong click coordinates and was not repeated; r10's dropdown
+code is unchanged from r9. Not checked again: the Vulkan probe, since
+`winex11.so` is unchanged.

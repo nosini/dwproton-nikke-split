@@ -1,4 +1,4 @@
-From fa23c098f1172321601f607a6aa4d2dd491a4ae8 Mon Sep 17 00:00:00 2001
+From f8e06cd8f334766ce96019e49fc8fd6d88048e69 Mon Sep 17 00:00:00 2001
 From: Nosini <git@nosini.eu>
 Date: Sun, 18 Oct 2026 01:29:24 +0200
 Subject: [PATCH 1/4] winewayland.drv: Retire nested popup roles before their
@@ -9,16 +9,21 @@ hiding and compositor dismissal, so nested descendants are retired first.
 Remove the individual destruction-site calls now covered by clear_role.
 
 Keep the window data lock while destroying a surface because traversal
-visits surfaces belonging to other window threads. This replaces the
+visits surfaces belonging to other window threads, and clear a destroyed
+window's role, retiring its popups first, before removing it from the
+window tree, so a traversal on another thread cannot miss it. Only walk
+the tree for a surface with an xdg_surface, the only kind that can parent
+a popup. If clearing a popup's old role retires its new owner, leave the
+popup unmapped instead of creating it without a parent. This replaces the
 previous patch's child lists with the traversal already carried upstream.
 ---
- dlls/winewayland.drv/wayland_surface.c |  9 +++------
+ dlls/winewayland.drv/wayland_surface.c | 16 ++++++++++------
  dlls/winewayland.drv/waylanddrv.h      |  1 +
- dlls/winewayland.drv/window.c          | 13 ++++++++-----
- 3 files changed, 12 insertions(+), 11 deletions(-)
+ dlls/winewayland.drv/window.c          | 17 ++++++++++++-----
+ 3 files changed, 23 insertions(+), 11 deletions(-)
 
 diff --git a/dlls/winewayland.drv/wayland_surface.c b/dlls/winewayland.drv/wayland_surface.c
-index 178e6db5..18fc1bfb 100644
+index 178e6db5..77ec0c66 100644
 --- a/dlls/winewayland.drv/wayland_surface.c
 +++ b/dlls/winewayland.drv/wayland_surface.c
 @@ -250,15 +250,9 @@ static void xdg_popup_handle_done(void *private, struct xdg_popup *xdg_popup)
@@ -37,12 +42,26 @@ index 178e6db5..18fc1bfb 100644
      wayland_win_data_release(data);
 
      NtUserPostMessage(hwnd, WM_WINE_UPDATEWINDOWSTATE, 0, 0);
-@@ -699,6 +693,9 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
+@@ -659,6 +653,12 @@ void wayland_surface_make_popup(struct wayland_surface *surface,
+     }
+
+     wayland_surface_clear_role(surface);
++    /* Clearing the role retires our popups, which can include the new owner. */
++    if (!owner->xdg_surface)
++    {
++        WARN("Owner hwnd=%p of popup hwnd=%p lost its role\n", owner->hwnd, surface->hwnd);
++        return;
++    }
+     surface->role = WAYLAND_SURFACE_ROLE_POPUP;
+
+     wayland_surface_init_fractional_scale(surface, owner->window.scale);
+@@ -699,6 +699,10 @@ void wayland_surface_clear_role(struct wayland_surface *surface)
  {
      TRACE("surface=%p\n", surface);
 
-+    /* Retire descendants before their parent on every role teardown path. */
-+    wayland_surface_reparent_popups(surface);
++    /* Retire descendants before their parent on every role teardown path.
++     * Only a surface with an xdg_surface can be the parent of a popup. */
++    if (surface->xdg_surface) wayland_surface_reparent_popups(surface);
 +
      /* some objects are shared between several roles */
 
@@ -60,10 +79,19 @@ index 0f85d16b..6f044ae5 100644
                                  struct wayland_shm_buffer *shm_buffer,
                                  HRGN surface_damage_region);
 diff --git a/dlls/winewayland.drv/window.c b/dlls/winewayland.drv/window.c
-index 6fd579e4..b083869a 100644
+index 6fd579e4..dbb8a684 100644
 --- a/dlls/winewayland.drv/window.c
 +++ b/dlls/winewayland.drv/window.c
-@@ -101,7 +101,13 @@ static void wayland_win_data_destroy(struct wayland_win_data *data)
+@@ -96,12 +96,22 @@ static void wayland_win_data_destroy(struct wayland_win_data *data)
+ {
+     TRACE("hwnd=%p\n", data->hwnd);
+
++    /* Retire this window's role, and its popups first, while it is still in
++     * the tree, so that a traversal on another thread cannot miss it once
++     * the lock is dropped. */
++    if (data->wayland_surface) wayland_surface_clear_role(data->wayland_surface);
+     rb_remove(&win_data_rb, &data->entry);
+
      pthread_mutex_unlock(&win_data_mutex);
 
      if (data->stashed_client) client_surface_release(&data->stashed_client->client);
@@ -78,7 +106,7 @@ index 6fd579e4..b083869a 100644
      if (data->window_contents) wayland_shm_buffer_unref(data->window_contents);
      free(data);
  }
-@@ -179,7 +185,7 @@ static void reapply_cursor_clipping(void)
+@@ -179,7 +189,7 @@ static void reapply_cursor_clipping(void)
      NtUserSetThreadDpiAwarenessContext(context);
  }
 
@@ -87,7 +115,7 @@ index 6fd579e4..b083869a 100644
  {
      HWND hwnd = surface->hwnd;
      struct wayland_win_data *entry;
-@@ -234,7 +240,6 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
+@@ -234,7 +244,6 @@ static BOOL wayland_win_data_create_wayland_surface(struct wayland_win_data *dat
           */
          data->wayland_surface = NULL;
          update_client_surfaces(data->hwnd);
@@ -95,7 +123,7 @@ index 6fd579e4..b083869a 100644
          wayland_surface_destroy(surface);
      }
 
-@@ -484,7 +489,6 @@ void WAYLAND_DestroyWindow(HWND hwnd)
+@@ -484,7 +493,6 @@ void WAYLAND_DestroyWindow(HWND hwnd)
      TRACE("%p\n", hwnd);
 
      if (!(data = wayland_win_data_get(hwnd))) return;
@@ -103,7 +131,7 @@ index 6fd579e4..b083869a 100644
      wayland_win_data_destroy(data);
  }
 
-@@ -536,7 +540,6 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
+@@ -536,7 +544,6 @@ void WAYLAND_WindowPosChanged(HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
      if (!surface && data->wayland_surface)
      {

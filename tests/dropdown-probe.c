@@ -12,7 +12,9 @@ int _fltused=0;
  * --local creates child and popup in the probe's own process instead, as a
  * CEF browser embedded in the game does; only its renderers are helpers.
  * --chromium uses the styles of NIKKE store's dropdown: WS_THICKFRAME and
- * no owner, positioned over the game window. */
+ * no owner, positioned over the game window. --caption adds WS_CAPTION, as
+ * on a floating tool palette, which must stay a managed window: it is
+ * expected to take focus and exit 8. */
 void *memset(void *p,int c,size_t n) {volatile unsigned char *b=p;for(size_t i=0;i<n;i++)b[i]=c;return p;}
 void *memcpy(void *d,const void *s,size_t n) {volatile unsigned char *o=d;const unsigned char *i=s;while(n--)*o++=*i++;return d;}
 static void print(const char *s) {DWORD n=0,w;while(s[n])n++;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&w,0);}
@@ -40,7 +42,7 @@ void mainCRTStartup(void) {
   pump(50);SetFocus(child);pump(20);
   if(GetFocus()!=child){print("child-focus-failed\n");ExitProcess(3);}
   RECT r;GetWindowRect(child,&r);
-  if(has_arg(cmd,"--chromium"))popup=CreateWindowExA(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,wc.lpszClassName,0,WS_POPUP|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|WS_THICKFRAME,r.left+60,r.top+80,240,180,0,0,module,0);
+  if(has_arg(cmd,"--chromium"))popup=CreateWindowExA(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,wc.lpszClassName,0,WS_POPUP|WS_CLIPSIBLINGS|WS_CLIPCHILDREN|WS_THICKFRAME|(has_arg(cmd,"--caption")?WS_CAPTION:0),r.left+60,r.top+80,240,180,0,0,module,0);
   else popup=CreateWindowExA(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,wc.lpszClassName,"",WS_POPUP,r.left+60,r.top+80,240,180,child,0,module,0);
   if(!popup){print("popup-failed\n");ExitProcess(4);}
   if(GetWindow(popup,GW_OWNER)!=(has_arg(cmd,"--chromium")?0:owner)){print("popup-owner-wrong\n");ExitProcess(5);}
@@ -59,7 +61,7 @@ void mainCRTStartup(void) {
  }
  HWND parent=CreateWindowExA(0,wc.lpszClassName,"Game",WS_OVERLAPPEDWINDOW|WS_VISIBLE,0,0,700,500,0,0,module,0);if(!parent){print("parent-failed\n");ExitProcess(1);}pump(150);
  if(GetForegroundWindow()!=parent)print("parent-not-foreground\n");
- char command[2048];DWORD n=GetModuleFileNameA(0,command+1,1800);command[0]='"';n++;DWORD slash=1;for(DWORD i=1;i<n;i++)if(command[i]=='\\'||command[i]=='/')slash=i+1;n=slash;const char *helper="INTLWebViewHelper.exe";while(*helper)command[n++]=*helper++;command[n++]='"';command[n++]=' ';const char *arg="--owner=0x";while(*arg)command[n++]=*arg++;UINT_PTR v=(UINT_PTR)parent;for(int i=15;i>=0;i--)command[n++]="0123456789abcdef"[(v>>(i*4))&15];const char *flags[]={" --wait-click"," --wait-key"," --wait-wheel"," --reopen"," --chromium"};for(int f=0;f<5;f++)if(has_arg(cmd,flags[f]+1)){const char *mode=flags[f];while(*mode)command[n++]=*mode++;}command[n]=0;
+ char command[2048];DWORD n=GetModuleFileNameA(0,command+1,1800);command[0]='"';n++;DWORD slash=1;for(DWORD i=1;i<n;i++)if(command[i]=='\\'||command[i]=='/')slash=i+1;n=slash;const char *helper="INTLWebViewHelper.exe";while(*helper)command[n++]=*helper++;command[n++]='"';command[n++]=' ';const char *arg="--owner=0x";while(*arg)command[n++]=*arg++;UINT_PTR v=(UINT_PTR)parent;for(int i=15;i>=0;i--)command[n++]="0123456789abcdef"[(v>>(i*4))&15];const char *flags[]={" --wait-click"," --wait-key"," --wait-wheel"," --reopen"," --chromium"," --caption"};for(int f=0;f<6;f++)if(has_arg(cmd,flags[f]+1)){const char *mode=flags[f];while(*mode)command[n++]=*mode++;}command[n]=0;
  STARTUPINFOA si={0};PROCESS_INFORMATION pi={0};si.cb=sizeof(si);if(!CreateProcessA(0,command,0,0,FALSE,0,0,0,&si,&pi)){print("spawn-failed\n");ExitProcess(6);}
  DWORD status=STILL_ACTIVE;for(int i=0;i<3000&&status==STILL_ACTIVE;i++){pump(1);GetExitCodeProcess(pi.hProcess,&status);}
  print("parent-finished\n");DestroyWindow(parent);ExitProcess(status);

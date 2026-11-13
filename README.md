@@ -24,7 +24,7 @@ python3 prepare-runner.py
 
 The script finds an unmodified DWProton 11.0-16 installation, checks its
 five original modules against the published build, and makes a separate
-`DWProton-11.0-16-nikke-split-r10` runner in
+`DWProton-11.0-16-nikke-split-r11` runner in
 `~/.local/share/Steam/compatibilitytools.d`. The original runner and earlier experimental
 runners are left alone. An installation elsewhere can be supplied as the
 first argument, and `--destination` chooses where the new runner goes.
@@ -34,7 +34,7 @@ newer and the normal Wine Wayland libraries.
 
 ## Use
 
-In NIKKE's sandbox settings, select `DWProton-11.0-16-nikke-split-r10`,
+In NIKKE's sandbox settings, select `DWProton-11.0-16-nikke-split-r11`,
 keep **Native Wayland + private X11 (split)**, and clear **X11
 executable**. An explicit `INTLWebViewHelper.exe` override would force the
 incompatible path back on. Launch the game and open, close and reopen the
@@ -57,8 +57,10 @@ sandbox-attach --exec -- python3 -I - < diagnose-store.py
 If several sandboxes are running, add `--name NAME` before `--exec`. The
 script only reads process metadata. It reports loaded display and graphics
 modules, selected browser flags and display settings, and whether the
-mapped `user32.dll`, `win32u.so` and `winewayland.so` files match this fix,
-naming an older revision if one is found. It omits full command lines and
+mapped `user32.dll`, `win32u.so`, `winewayland.so` and `winex11.so`
+files match this fix, naming an older revision if one is found. A
+mismatching `winex11.so` means the launcher fix for X servers without
+DRI3 is not active. It omits full command lines and
 URLs. Loaded modules alone do not prove which rendering API is active.
 
 ## What the fix changes

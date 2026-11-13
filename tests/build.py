@@ -23,7 +23,8 @@ imports = {
                "PeekMessageA", "TranslateMessage", "DispatchMessageA", "DefWindowProcA", "GetDC", "ReleaseDC", "FillRect",
                "SetFocus", "GetFocus", "GetWindowRect", "GetWindow", "BeginPaint", "EndPaint",
                "LoadCursorA", "GetForegroundWindow", "PostMessageA"],
-    "gdi32": ["ChoosePixelFormat", "SetPixelFormat", "SwapBuffers", "CreateSolidBrush", "DeleteObject", "GdiFlush", "CreateCompatibleDC", "CreateDIBSection", "SelectObject", "BitBlt", "DeleteDC", "CreateRectRgn", "CombineRgn", "SelectClipRgn", "GetPixel"],
+    "gdi32": ["ChoosePixelFormat", "SetPixelFormat", "SwapBuffers", "CreateSolidBrush", "DeleteObject", "GdiFlush", "CreateCompatibleDC", "CreateDIBSection", "SelectObject", "BitBlt", "DeleteDC", "CreateRectRgn", "CombineRgn", "SelectClipRgn", "GetPixel",
+              "CreateFontA", "ExtTextOutA", "SetBkColor"],
     "opengl32": ["wglCreateContext", "wglMakeCurrent", "wglDeleteContext", "glClearColor", "glClear"],
 }
 libraries = []

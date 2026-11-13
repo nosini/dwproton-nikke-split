@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 
-TOOL = "DWProton-11.0-16-nikke-split-r10"
+TOOL = "DWProton-11.0-16-nikke-split-r11"
 ORIGINALS = {
     "files/lib/wine/x86_64-unix/win32u.so":
         "d1350fb713b468d75767dce23e4748a171c73e27efa189afbf233abe9816b572",
@@ -27,8 +27,12 @@ ORIGINALS = {
 
 
 def digest(path):
+    # hashlib.file_digest needs Python 3.11.
+    sha256 = hashlib.sha256()
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 
 def matches(path):
@@ -88,7 +92,10 @@ def main():
         # Zero keeps this test runner behind released runners for automatic selection.
         (stage / "version").write_text(f"0 {TOOL}\n")
         vdf = stage / "compatibilitytool.vdf"
-        vdf.write_text(vdf.read_text().replace("dwproton-11.0-16-x86_64", TOOL))
+        text = vdf.read_text()
+        if "dwproton-11.0-16-x86_64" not in text:
+            raise ValueError(f"Unexpected tool name in {vdf.name}; the runner was not renamed")
+        vdf.write_text(text.replace("dwproton-11.0-16-x86_64", TOOL))
         if os.path.lexists(destination):
             raise ValueError(f"Destination already exists: {destination}")
         stage.rename(destination)

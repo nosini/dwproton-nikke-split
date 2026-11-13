@@ -11,8 +11,11 @@ Wine source of the published `dwproton-11.0-16` release:
    common role-clearing function, making it recursive and covering hiding
    and compositor dismissal. The previous per-surface child lists and
    upstream's individual destruction-site calls are removed. A destroyed
-   window's surface is torn down under the window data lock because the
-   traversal visits windows belonging to other threads.
+   window's popups are retired before it leaves the window tree, and its
+   surface is torn down under the window data lock, because the traversal
+   visits windows belonging to other threads. A popup whose new owner is
+   retired by clearing its old role stays unmapped rather than being
+   created without a parent.
 2. **win32u: Forward bitmap copies into windows of another process.** For a
    DC whose top-level window belongs to another process and that has no
    window surface, clipped 32-bit `SRCCOPY` images are queued. On
@@ -20,13 +23,16 @@ Wine source of the published `dwproton-11.0-16` release:
    announced with an internal message; that process paints them through a
    DC of the target window. The receiver only accepts a whole read-only
    view that starts with the sender's tag, checks private copies of the
-   header and region data, and leaves any other mapping alone.
+   header and region data, and leaves any other mapping alone. Other
+   copies, fully clipped ones and copies to the desktop window are
+   discarded and reported as successful, as without the patch. A DC that
+   is never released keeps at most 16 queued copies or 128 MiB.
 3. **user32: Let INTLWebViewHelper.exe use the Wayland driver.** Removes the
    helper from DWProton's forced X11 list. Depends on 2.
 4. **winewayland.drv: Keep non-activating tool popups unmanaged.**
-   `WS_POPUP` windows with `WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW` that are not
-   being activated are no longer managed because of a resizing frame, so
-   they become ungrabbed `xdg_popup`s. If the window beside an unowned
+   `WS_POPUP` windows with `WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW` and no
+   caption that are not being activated are no longer managed because of
+   a resizing frame, so they become ungrabbed `xdg_popup`s. If the window beside an unowned
    popup belongs to another process, the foreground window is used as its
    parent.
 5. **winewayland.drv: Don't set an app_id on saved activation tokens.**
@@ -140,7 +146,12 @@ and run each `.exe` with `proton run` from the runner being tested, with
   disjoint clipping. Success prints `parent-pixels-ok` and exits with
   status zero; with copies discarded it exits with status 7. Omitting
   `--foreign-window` makes the helper own the child while the parent still
-  owns the top-level window.
+  owns the top-level window. In the bitmap modes the helper also checks
+  that a `SRCINVERT` copy, which is not forwarded, still reports success
+  (status 5 otherwise). `--text --foreign-window` has the helper draw
+  anti-aliased `ETO_OPAQUE` text into the parent's child, the path that
+  sizes its buffer from the format query; it exits with status zero if
+  every call succeeds.
 - `forged-probe.exe` posts the internal bitmap message with the addresses
   of unrelated writable and read-only mappings. It exits with status zero
   if the receiver leaves both mapped.
@@ -152,7 +163,10 @@ and run each `.exe` with `proton run` from the runner being tested, with
   `--wait-key` also wait for a click or wheel turn on the popup or a key
   press, exiting with status 9, 11 or 10 if missing; `--reopen` hides and
   shows the popup again. Without `--local`, a helper process creates the
-  child and the popup, which is not handled.
+  child and the popup, which is not handled. `--caption` adds
+  `WS_CAPTION`, as on a floating tool palette, which must stay a managed
+  window; with patch 4 that run is expected to take focus and exit with
+  status 8.
 
 - `vulkan-probe.exe` presents 60 red frames through a Win32 Vulkan
   swapchain in a 320×240 window at the top left. Run it on the X11 driver
